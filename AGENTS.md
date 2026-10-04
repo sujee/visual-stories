@@ -140,7 +140,7 @@ Once approved, turn the story directory into a **Repro Bundle**:
 
 When finished, report: files to commit, files that must not be committed, the exact commands to reproduce, and any remaining external requirements or limitations.
 
-An story is done when it communicates the goals of `brief.md`, the user has approved it, the bundle checks above pass, and someone with only the repository can reproduce and remix it.
+A story is done when it communicates the goals of `brief.md`, the user has approved it, the bundle checks above pass, and someone with only the repository can reproduce and remix it.
 
 ## Known Pitfalls
 
