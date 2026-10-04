@@ -8,9 +8,7 @@ Open-source, reproducible visual stories for AI, software, and technical concept
 
 ### [Browse the stories](#stories) · [Reproduce one](#explore-and-reproduce) · [Create your own](#create-a-new-story)
 
-The code and templates are under [Apache-2.0](LICENSE). The original videos and soundtracks are licensed under [CC BY 4.0](LICENSE-CONTENT). If you build something cool with it, a link back to this project is always appreciated, but not required for the code.
-
-Note: some videos / content may not by fully open source.  Check the notes.
+The code and templates are licensed under [Apache-2.0](LICENSE), and the original videos and soundtracks under [CC BY 4.0](LICENSE-CONTENT). If you build something cool with them, a link back is always appreciated (not required). Most of the projects here are open source, unless noted otherwise.
 
 ## Working with Agents
 
@@ -20,7 +18,7 @@ Note: some videos / content may not by fully open source.  Check the notes.
 
 Each visual story is self-contained.
 
-**Yourself:**
+**On your own:**
 
 ```bash
 git clone https://github.com/sujee/visual-stories.git
@@ -40,7 +38,7 @@ Start a coding agent in the repository root (the new story's folder doesn't exis
 
 > Create a new story about prefill vs decode.
 
-It starts by writing a `brief.md` for you to review, then renders drafts (`v1`, `v2`, …) for your feedback. Once you approve a version, ask it to *prepare the Repro Bundle* before committing.
+The agent starts by writing a `brief.md` for you to review, then renders drafts (`v1`, `v2`, …) for your feedback. Once you approve a version, ask it to *prepare the Repro Bundle* before committing.
 
 Or start by hand: copy [`templates/story/`](templates/story/) to `projects/<name>/` and fill in the placeholders.
 
@@ -48,8 +46,8 @@ Or start by hand: copy [`templates/story/`](templates/story/) to `projects/<name
 
 All the videos are in one [YouTube playlist](https://www.youtube.com/playlist?list=PLUs9fKO_C_uw).
 
-| Story | What it teaches | Watch | Built with |
+| Published | Story | What it's about | Watch |
 |---|---|---|---|
-| [jev-vs-llm](projects/jev-vs-llm/) | Jev, TypeSafe AI's "System One" model, vs. a chat LLM - typed decisions with calibrated probabilities instead of text | [Video](https://youtu.be/RQ6f6z-dPWA) · [Short](https://youtube.com/shorts/Iv2K_rx5Jso) · [4K release](https://github.com/sujee/visual-stories/releases/tag/jev-vs-llm-v1) | Manim (Python) |
-| [neural-network-training](projects/neural-network-training/) | How a network learns - forward pass, error, backpropagation, weight updates | [Video](https://youtu.be/BJC3FuMHRvs) · [Short](https://youtube.com/shorts/0fBcojHo-SI) · [4K release](https://github.com/sujee/visual-stories/releases/tag/neural-network-training-v1) | Manim (Python) |
-| [neural-network-training-cartoon](projects/neural-network-training-cartoon/) | The same story in a bright cartoon style, with a bouncy soundtrack | [Video](https://youtu.be/11BqOZ9HJeY) · [Short](https://youtube.com/shorts/wK1GNcRc8jY) · [4K release](https://github.com/sujee/visual-stories/releases/tag/neural-network-training-cartoon-v1) | Manim (Python) |
+| 2026-10-03 | [jev-vs-llm](projects/jev-vs-llm/) | Jev, TypeSafe AI's "System One" model, vs. a chat LLM - typed decisions with calibrated probabilities instead of text | [Video](https://youtu.be/RQ6f6z-dPWA) · [Short](https://youtube.com/shorts/Iv2K_rx5Jso) · [4K release](https://github.com/sujee/visual-stories/releases/tag/jev-vs-llm-v1) |
+| 2026-09-27 | [neural-network-training](projects/neural-network-training/) | How a network learns - forward pass, error, backpropagation, weight updates | [Video](https://youtu.be/BJC3FuMHRvs) · [Short](https://youtube.com/shorts/0fBcojHo-SI) · [4K release](https://github.com/sujee/visual-stories/releases/tag/neural-network-training-v1) |
+| 2026-09-27 | [neural-network-training-cartoon](projects/neural-network-training-cartoon/) | The same story in a bright cartoon style, with a bouncy soundtrack | [Video](https://youtu.be/11BqOZ9HJeY) · [Short](https://youtube.com/shorts/wK1GNcRc8jY) · [4K release](https://github.com/sujee/visual-stories/releases/tag/neural-network-training-cartoon-v1) |
