@@ -17,21 +17,21 @@ Upload the full video first, because the Short links to it.
    **Tags:** `Jev, TypeSafe AI, System One model, LLM, large language model, AI explained, explainer video, calibrated probabilities, RLCD, RLHF, structured output, AI automation, machine learning, Jev vs LLM, AI for developers`.
 8. **Visibility:** Public (or Unlisted to check it first). Publish.
 9. **Copy the video's URL:** the Short needs it. Once the Short is up, come back and replace
-   `<link to the Short>` in this description (step 3).
+   `<insert link to the Short>` in this description (step 3).
 
 ## 2. Upload the Short (0:36)
 
 1. Upload `workspace/preview/<version>/jev-vs-llm-<version>-9x16-4k.mp4`. It's vertical and under 3 minutes, so YouTube treats it as a Short.
 2. **Title:** `Most AI models write. Jev decides. #Shorts`
-3. **Description:** paste the "Short description" below.
-4. **Related video:** set it to the full video (https://youtu.be/RQ6f6z-dPWA), so viewers can tap through from the Short.
+3. **Description:** paste the "Short description" below, with the full video's URL in place of `<insert link to the full video>`.
+4. **Related video:** set it to the full video, so viewers can tap through from the Short.
 5. **Thumbnail:** if your YouTube app offers a custom Short thumbnail, use
    `thumbnails/jev-vs-llm-thumbnail-a-9x16.png`; otherwise pick a frame from the hook.
 6. Same playlist, audience, license, category and tags as the full video. Publish.
 
 ## 3. Link them both ways
 
-- On the full video, make sure the description's "Short version" line has the Short's URL, and pin a comment: "The 36-second version: https://youtube.com/shorts/Iv2K_rx5Jso".
+- On the full video, make sure the description's "Short version" line has the Short's URL, and pin a comment: "The 36-second version: <insert link to the Short>".
 - Optional: on the full video, add an end screen element pointing to the Short or the playlist.
 
 ## 4. Back in the repo
@@ -47,7 +47,7 @@ Upload the full video first, because the Short links to it.
 ```text
 Most AI models write their answers. Jev, TypeSafe AI's new "System One" model, doesn't write at all: it reads your program's state and returns typed decisions, with a calibrated probability for every option. This explainer shows what that means for developers: why it's fast, how to act on its confidence, and where an LLM is still the right tool.
 
-Short version (36 s): https://youtube.com/shorts/Iv2K_rx5Jso
+Short version (36 s): <insert link to the Short>
 
 Chapters
 0:00 System 1 decisions
@@ -74,7 +74,7 @@ Created by sujee.dev
 ```text
 Most AI models write. Jev doesn't: it picks from the answers you define, with a probability for each, in one pass.
 
-Full 2-minute explainer: https://youtu.be/RQ6f6z-dPWA
+Full 2-minute explainer: <insert link to the full video>
 Facts from TypeSafe AI's launch post: https://typesafe.ai/blog/introducing-system-one-models-and-jev
 
 Created by sujee.dev

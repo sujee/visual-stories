@@ -7,6 +7,7 @@ two descriptions to paste. Chapter timestamps (one per section, the first starti
 title card is part of it) come from the render, so they always match the video. Edit the text below.
 Fails if the chapters break YouTube's rules (first at 0:00, at least 3, each at least 10 seconds),
 since YouTube would then show none.
+The published video and Short URLs are left as placeholders to fill in at upload time.
 """
 import json
 import sys
@@ -15,11 +16,9 @@ NAME = "jev-vs-llm"
 REPO = f"https://github.com/sujee/visual-explainers/tree/main/explainers/{NAME}"
 SOURCE = "https://typesafe.ai/blog/introducing-system-one-models-and-jev"
 PLAYLIST = "Visual Explainers"
-VIDEO_URL = "https://youtu.be/RQ6f6z-dPWA"   # the published full video ("" until it is up)
-SHORT_URL = "https://youtube.com/shorts/Iv2K_rx5Jso"   # the published Short ("" until it is up)
 
 TITLE = "Jev vs. LLMs: a model that decides instead of writing | Explainer Video"
-SHORT_TITLE = "Most AI models write. Jev doesn't. #Shorts"
+SHORT_TITLE = "Most AI models write. Jev decides. #Shorts"
 # The first three hashtags show above the title on YouTube; keep the total well under 15.
 HASHTAGS = "#AI #LLM #ExplainerVideo #Jev"
 SHORT_HASHTAGS = "#Shorts #AI #LLM #Jev #ExplainerVideo"
@@ -49,7 +48,7 @@ Created by sujee.dev
 SHORT = f"""\
 Most AI models write. Jev doesn't: it picks from the answers you define, with a probability for each, in one pass.
 
-Full 2-minute explainer: {VIDEO_URL or '<link to the full video>'}
+Full 2-minute explainer: <insert link to the full video>
 Facts from TypeSafe AI's launch post: {SOURCE}
 
 Created by sujee.dev
@@ -97,21 +96,21 @@ Upload the full video first, because the Short links to it.
    **Tags:** `{TAGS}`.
 8. **Visibility:** Public (or Unlisted to check it first). Publish.
 9. **Copy the video's URL:** the Short needs it. Once the Short is up, come back and replace
-   `<link to the Short>` in this description (step 3).
+   `<insert link to the Short>` in this description (step 3).
 
 ## 2. Upload the Short ({stamp(short['end'])})
 
 1. Upload `{video}-9x16-4k.mp4`. It's vertical and under 3 minutes, so YouTube treats it as a Short.
 2. **Title:** `{SHORT_TITLE}`
-3. **Description:** paste the "Short description" below{'' if VIDEO_URL else ", with the full video's URL in place of `<link to the full video>`"}.
-4. **Related video:** set it to the full video{f" ({VIDEO_URL})" if VIDEO_URL else ""}, so viewers can tap through from the Short.
+3. **Description:** paste the "Short description" below, with the full video's URL in place of `<insert link to the full video>`.
+4. **Related video:** set it to the full video, so viewers can tap through from the Short.
 5. **Thumbnail:** if your YouTube app offers a custom Short thumbnail, use
    `thumbnails/{NAME}-thumbnail-a-9x16.png`; otherwise pick a frame from the hook.
 6. Same playlist, audience, license, category and tags as the full video. Publish.
 
 ## 3. Link them both ways
 
-- On the full video, make sure the description's "Short version" line has the Short's URL, and pin a comment: "The {int(short['end'])}-second version: {SHORT_URL or '<Short URL>'}".
+- On the full video, make sure the description's "Short version" line has the Short's URL, and pin a comment: "The {int(short['end'])}-second version: <insert link to the Short>".
 - Optional: on the full video, add an end screen element pointing to the Short or the playlist.
 
 ## 4. Back in the repo
@@ -127,7 +126,7 @@ Upload the full video first, because the Short links to it.
 ```text
 {ABOUT}
 
-Short version ({int(short['end'])} s): {SHORT_URL or '<link to the Short>'}
+Short version ({int(short['end'])} s): <insert link to the Short>
 
 Chapters""")
 for t, title in chapters:
