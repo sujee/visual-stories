@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Render the explainer. Output goes to workspace/preview/<version>/ (see README.md).
+# Render the story. Output goes to workspace/preview/<version>/ (see README.md).
 #
 #   ./render.sh [quality] [version]
 #

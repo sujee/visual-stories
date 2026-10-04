@@ -1,12 +1,12 @@
 # <Title>
 
-<One sentence: what the explainer teaches.>
+<One sentence: what the story teaches.>
 
 The intent (what it teaches, for whom, and what must come across) is in [brief.md](brief.md). The approved implementation is in `src/`.
 
 Working with a coding agent? The house rules are in [AGENTS.md](../../AGENTS.md) at the repository root: read it first.
 
-▶ Watch the finished explainer: <link, or *(coming soon)*>
+▶ Watch the finished story: <link, or *(coming soon)*>
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ Working with a coding agent? The house rules are in [AGENTS.md](../../AGENTS.md)
 **Option 1: with a coding agent** (Claude Code, Codex, OpenCode, …), started in this directory:
 
 1. **Edit `brief.md`.** Say what you want, not how. E.g. <an example change and the brief section it goes under>.
-2. **Ask for a draft:** *"Update the explainer to match the brief and render a draft."* The agent edits `src/` and renders to `workspace/preview/v1/` (then `v2`, `v3`, …).
+2. **Ask for a draft:** *"Update the story to match the brief and render a draft."* The agent edits `src/` and renders to `workspace/preview/v1/` (then `v2`, `v3`, …).
 3. **Watch it and give notes**, ideally with timestamps: *"0:45: the caption overlaps the chart."* The agent applies them and renders the next draft. Repeat until you're happy.
 4. **Approve and render final:** *"v3 is approved, render it at final quality"* (or `./render.sh final v3` yourself). This takes a while: <what a final render produces, e.g. 4K, both formats>.
 

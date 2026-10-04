@@ -11,7 +11,7 @@ __pycache__/
 
 # Tool caches, and Manim's default output folder (if run without --media_dir)
 .cache/
-explainers/*/media/
+projects/*/media/
 
 # Secrets
 .env

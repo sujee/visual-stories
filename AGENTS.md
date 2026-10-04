@@ -1,22 +1,22 @@
-# Visual Explainers - Agent Instructions
+# Visual Stories - Agent Instructions
 
-Open-source, reproducible visual explainers for AI, software, and technical concepts.
+Open-source, reproducible visual stories for AI, software, and technical concepts.
 
 **Watch them. Reproduce them. Remix them.**
 
-Each explainer is a self-contained project that anyone — a developer, CI, or any coding agent — can understand, reproduce, and modify from the repository alone, without the conversation that created it.
+Each story is a self-contained project that anyone — a developer, CI, or any coding agent — can understand, reproduce, and modify from the repository alone, without the conversation that created it.
 
 ## Core Principles
 
-1. **Start at the explainer's `README.md`, then its brief.** The README says how to run it and points to `brief.md`, which uses the headings Goal / Audience / Story (optional) / Must communicate / Style / Constraints (optional) / Deliverables / Credit / Creative freedom. Story lists fixed story beats, when the explainer needs them; Deliverables says what to make (formats and lengths); Credit gives the end-card text; Creative freedom is one line. A brief is self-contained: it says *what* to make and works if it's handed to an agent on its own, while this file says *how* every explainer is produced (see Technical Specs). A brief deliberately does not prescribe scenes: even a Story gives beats, not a scene-by-scene script.
+1. **Start at the story's `README.md`, then its brief.** The README says how to run it and points to `brief.md`, which uses the headings Goal / Audience / Story (optional) / Must communicate / Style / Constraints (optional) / Deliverables / Credit / Creative freedom. Story lists fixed story beats, when the story needs them; Deliverables says what to make (formats and lengths); Credit gives the end-card text; Creative freedom is one line. A brief is self-contained: it says *what* to make and works if it's handed to an agent on its own, while this file says *how* every story is produced (see Technical Specs). A brief deliberately does not prescribe scenes: even a Story gives beats, not a scene-by-scene script.
 2. **Exercise creative freedom.** Treat the brief as goals, not a script. You decide the visual metaphors, story, structure, animation, pacing, typography, and layout. Prefer visuals over text, and don't ask the user to specify every creative decision.
-3. **The source is the final storyboard.** No separate scene-by-scene script unless an explainer truly needs one. `brief.md` captures intent, the approved source captures the final creative decisions, and Git captures their evolution.
+3. **The source is the final storyboard.** No separate scene-by-scene script unless a story truly needs one. `brief.md` captures intent, the approved source captures the final creative decisions, and Git captures their evolution.
 4. **Be agent-agnostic.** Don't depend on previous conversations, hidden prompts, agent-specific context (Claude, OpenCode, Hermes, …), or files outside the project.
 
 ## Project Structure
 
 ```text
-explainers/<explainer-name>/
+projects/<story-name>/
 ├── README.md
 ├── brief.md
 ├── src/
@@ -28,9 +28,9 @@ explainers/<explainer-name>/
 └── workspace/               ← git-ignored: previews, exports, scratch
 ```
 
-Use the ecosystem's manifest and lockfile, e.g. `package.json` + `package-lock.json`, or `pyproject.toml` + `uv.lock` + `.python-version` for Python (run everything through `uv run`; no global or `pip` installs). Pick the technology that suits the explainer; don't force a framework for consistency.
+Use the ecosystem's manifest and lockfile, e.g. `package.json` + `package-lock.json`, or `pyproject.toml` + `uv.lock` + `.python-version` for Python (run everything through `uv run`; no global or `pip` installs). Pick the technology that suits the story; don't force a framework for consistency.
 
-Start a new explainer by copying [`templates/explainer/`](templates/explainer/) to `explainers/<explainer-name>/` and filling in the `<placeholders>`:
+Start a new story by copying [`templates/story/`](templates/story/) to `projects/<story-name>/` and filling in the `<placeholders>`:
 
 - `brief.md`: write it first (see Iteration Workflow).
 - `README.md`: the entry point for people and agents. Keep its structure and keep it short; prefer commands over prose.
@@ -38,7 +38,7 @@ Start a new explainer by copying [`templates/explainer/`](templates/explainer/) 
 
 ## Reproducibility
 
-A fresh clone must reproduce the approved explainer: enter the explainer directory, install the documented dependencies, run `./render.sh`, get the deliverables. The Repro Bundle's fresh-clone test (below) checks this.
+A fresh clone must reproduce the approved story: enter the story directory, install the documented dependencies, run `./render.sh`, get the deliverables. The Repro Bundle's fresh-clone test (below) checks this.
 
 - Declare and lock all dependencies. Document any unavoidable system requirements (e.g. ffmpeg, fonts) in `README.md`; don't rely on undocumented global tools.
 - Renders must be deterministic: seed all randomness (layouts, weights, noise, generated music), and fetch nothing from the network at render time.
@@ -51,7 +51,7 @@ A fresh clone must reproduce the approved explainer: enter the explainer directo
 ./render.sh [quality] [version]
 ```
 
-Plain `./render.sh` must render every deliverable at final quality — reproducing an explainer should never require learning its parameters.
+Plain `./render.sh` must render every deliverable at final quality — reproducing a story should never require learning its parameters.
 
 - `quality`: draft or final (default). A draft is fast and may render only the main format.
 - `version`: the preview directory, `workspace/preview/<version>/`. Use `v1`, `v2`, … for review iterations; when omitted, use a `YYYY-MM-DD_HHMMSS` timestamp.
@@ -77,15 +77,15 @@ The brief's **Deliverables** says which videos to make and how long; these specs
 
 - **Vertical:** recompose the layout rather than cropping the 16:9 version; share content and animation logic where practical. Keep text and key visuals clear of the platform UI: roughly the bottom 15% and the right edge.
 - **Audio:** produce each video with music and silent (for remixers adding voiceover or their own track). Music must be original or redistributable; generating it deterministically in code is a good default. Normalize to about −14 LUFS integrated, true peak ≤ −1 dBTP.
-- **Social copies** (when the brief asks for them): at final quality, `render.sh` also writes a 1080p copy of each video with music (`<explainer>-<version>-<aspect>-1080p.mp4`), scaled from the 4K master. X, LinkedIn and Bluesky don't play 4K in the feed, and a smaller upload is faster and gets compressed less.
-- **YouTube publishing guide** (when the brief asks for one): `render.sh` writes `youtube-publishing.md` in the explainer directory (tracked, rewritten by every render): step-by-step upload instructions (the full video first, then the Short, which links to it; then link them both ways and update the READMEs) followed by a description for each video. Chapter timestamps come from the render's own timeline so they always match the video. YouTube only shows chapters if the first starts at 0:00, there are at least three, and each is at least 10 seconds; check this when generating it. Attribute sources and credit the way the video does. Don't hard-code the published YouTube URLs in the generator; print placeholders such as `<insert link to the Short>` to fill in at upload time.
-- **Thumbnails** (when the brief asks for them): `render.sh` renders them as stills to `thumbnails/<explainer>-thumbnail-<design>-<aspect>.png` in the explainer directory (tracked, so they can be shared without rendering; rewritten by every render): 1280×720 for 16:9 and 1080×1920 for 9:16, each under 2 MB. Big type and one simple picture, readable at phone size; keep key content away from the bottom-right corner, where YouTube overlays the duration.
+- **Social copies** (when the brief asks for them): at final quality, `render.sh` also writes a 1080p copy of each video with music (`<story>-<version>-<aspect>-1080p.mp4`), scaled from the 4K master. X, LinkedIn and Bluesky don't play 4K in the feed, and a smaller upload is faster and gets compressed less.
+- **YouTube publishing guide** (when the brief asks for one): `render.sh` writes `youtube-publishing.md` in the story directory (tracked, rewritten by every render): step-by-step upload instructions (the full video first, then the Short, which links to it; then link them both ways and update the READMEs) followed by a description for each video. Chapter timestamps come from the render's own timeline so they always match the video. YouTube only shows chapters if the first starts at 0:00, there are at least three, and each is at least 10 seconds; check this when generating it. Attribute sources and credit the way the video does. Don't hard-code the published YouTube URLs in the generator; print placeholders such as `<insert link to the Short>` to fill in at upload time.
+- **Thumbnails** (when the brief asks for them): `render.sh` renders them as stills to `thumbnails/<story>-thumbnail-<design>-<aspect>.png` in the story directory (tracked, so they can be shared without rendering; rewritten by every render): 1280×720 for 16:9 and 1080×1920 for 9:16, each under 2 MB. Big type and one simple picture, readable at phone size; keep key content away from the bottom-right corner, where YouTube overlays the duration.
 - **Attribution:** end with a short, understated card showing the credit from the brief's **Credit** section. No Credit section, no card. Keep it easy for remixers to change or remove; don't add technical measures to enforce it.
 
 ## Workspace and Output
 
 ```text
-workspace/                   ← git-ignored; nothing in it is needed to reproduce the explainer
+workspace/                   ← git-ignored; nothing in it is needed to reproduce the story
 ├── preview/
 │   ├── v1/                  ← named versions, for review iterations
 │   ├── 2026-09-26_145210/   ← timestamped, from a plain ./render.sh
@@ -102,7 +102,7 @@ workspace/                   ← git-ignored; nothing in it is needed to reprodu
 File names carry everything needed to identify a file once it's copied or shared:
 
 ```text
-<explainer>-<version>-<aspect>-<resolution>[-silent].mp4
+<story>-<version>-<aspect>-<resolution>[-silent].mp4
 
 prefill-vs-decode-v5-16x9-4k.mp4
 prefill-vs-decode-v5-16x9-4k-silent.mp4
@@ -117,19 +117,19 @@ prefill-vs-decode-v5-9x16-4k.mp4
 
 ## Iteration Workflow
 
-1. For a new explainer, copy `templates/explainer/`, write `brief.md` first and get it reviewed. Then render drafts as named versions (`v1`, `v2`, …) at draft quality.
+1. For a new story, copy `templates/story/`, write `brief.md` first and get it reviewed. Then render drafts as named versions (`v1`, `v2`, …) at draft quality.
 2. Before presenting a draft, check rendered frames yourself — overlapping or clipped text, leftover elements, layout, timing — and fix what you find.
 3. The human reviews, usually with timestamped notes ("0:45: the caption overlaps the chart").
 4. Apply the notes, bump the version, and log what changed in `workspace/preview/NOTES.md` (a local work log, not committed). Drafts are not committed; Git records approved versions, one commit each.
 5. Stop at drafts. Render final quality only after the human explicitly approves a version.
 6. When the human approves a version, offer to prepare the Repro Bundle (below), so they don't need to know to ask.
-7. Before committing changes to an explainer, or when the human asks to commit or whether to commit, check that the fresh-clone test (below) has passed on the files being committed. If it hasn't, or anything that affects the render (sources, assets, dependencies, `render.sh`) changed since it ran, ask the human whether to run it first — it takes a full final render. Commit without it only if they say so.
+7. Before committing changes to a story, or when the human asks to commit or whether to commit, check that the fresh-clone test (below) has passed on the files being committed. If it hasn't, or anything that affects the render (sources, assets, dependencies, `render.sh`) changed since it ran, ask the human whether to run it first — it takes a full final render. Commit without it only if they say so.
 
 Optional: if you can measure your own usage, record tokens and cost across all iterations in `TOKENS.md`.
 
 ## Repro Bundle and Definition of Done
 
-Once approved, turn the explainer directory into a **Repro Bundle**:
+Once approved, turn the story directory into a **Repro Bundle**:
 
 1. Review it as if you had never seen the original conversation.
 2. Check that sources, assets, dependencies, lockfiles and `.gitignore` are complete; remove unused and temporary files.
@@ -140,16 +140,16 @@ Once approved, turn the explainer directory into a **Repro Bundle**:
 
 When finished, report: files to commit, files that must not be committed, the exact commands to reproduce, and any remaining external requirements or limitations.
 
-An explainer is done when it communicates the goals of `brief.md`, the user has approved it, the bundle checks above pass, and someone with only the repository can reproduce and remix it.
+An story is done when it communicates the goals of `brief.md`, the user has approved it, the bundle checks above pass, and someone with only the repository can reproduce and remix it.
 
 ## Known Pitfalls
 
-Lessons from earlier explainers; check these before they cost a draft.
+Lessons from earlier stories; check these before they cost a draft.
 
 - **Don't overwrite the human's edits.** Before writing or regenerating a file, check `git status`/`git diff` for changes you didn't make. Generated-but-tracked files (`youtube-publishing.md`, `thumbnails/`) are rewritten by every render, so carry any hand edit into the source that generates them (or ask) first.
 - **Look at frames, not just exit codes.** A render that succeeds can still have clipped, overlapping or wrapped text. Check both formats, including a full-size frame, not only a contact sheet.
 - **Lay out each format for itself.** A layout designed for 16:9 ends up small and top-heavy in 9:16. Build each scene's layout, then scale it to fill that format's safe area.
-- **Manim text:** small `font_size` values get uneven letter spacing (render larger and scale down). Pango wraps `Text` at the frame's *pixel* width, so large text can wrap in a 720p draft but not in the 4K final; widen the layout box while building text, or build one `Text` per line. Run Manim with `--media_dir` under `workspace/tmp/` (or through `render.sh`), or it writes a `media/` folder into the explainer.
+- **Manim text:** small `font_size` values get uneven letter spacing (render larger and scale down). Pango wraps `Text` at the frame's *pixel* width, so large text can wrap in a 720p draft but not in the 4K final; widen the layout box while building text, or build one `Text` per line. Run Manim with `--media_dir` under `workspace/tmp/` (or through `render.sh`), or it writes a `media/` folder into the story.
 - **Manim animation:** in a `Succession`, animating a submobject after its parent has moved can drop the rest of the group (text vanished from pills). Prefer `MoveAlongPath` or separate `play` calls.
 - **Music should sit behind the visuals.** Busy or building tracks felt distracting; keep it level and simple unless the brief says otherwise. You can't hear it: check loudness, the waveform and a spectrogram, and say it's unverified by ear.
 - **YouTube chapters:** each must last at least 10 seconds by the listed timestamps, or YouTube shows none. Generate them from the render's timeline and check the rule there.
@@ -158,4 +158,4 @@ Lessons from earlier explainers; check these before they cost a draft.
 
 Structure projects so others can easily change the metaphor, content, pacing, or length, add or remove scenes, create a vertical version, adapt to a related concept, or replace branding. Favor clear, maintainable code over clever code.
 
-This is a collection of **finished explainers**, not a video framework. Keep explainers self-contained; don't build shared abstractions or infrastructure until several finished projects show a clear recurring pattern.
+This is a collection of **finished stories**, not a video framework. Keep stories self-contained; don't build shared abstractions or infrastructure until several finished projects show a clear recurring pattern.

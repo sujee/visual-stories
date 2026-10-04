@@ -1,6 +1,6 @@
 """How a neural network learns: forward pass, backpropagation, weight updates.
 
-Normally rendered through ../render.sh. To run Manim directly, from the explainer directory:
+Normally rendered through ../render.sh. To run Manim directly, from the story directory:
   NN_ORIENT=landscape uv run manim -qk --frame_rate 30 src/scene.py NeuralNet
   NN_ORIENT=portrait  uv run manim -qk --frame_rate 30 src/scene.py NeuralNet
 Timeline events (for music sync) are written to workspace/tmp/events_<orient>.json.
@@ -9,18 +9,9 @@ import json
 import os
 import re
 import textwrap
-from pathlib import Path
 
-import manimpango
 import numpy as np
 from manim import *
-
-# Bundled display fonts, registered for this process only, so a render never depends on
-# fonts installed on the machine. Licence files sit next to the .ttf files in assets/fonts/.
-FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
-for _f in ("LuckiestGuy-Regular.ttf", "ComicNeue-Regular.ttf", "ComicNeue-Bold.ttf"):
-    if not manimpango.register_font(str(FONT_DIR / _f)):
-        raise RuntimeError(f"could not register font {_f} from {FONT_DIR}")
 
 ORIENT = os.environ.get("NN_ORIENT", "landscape")
 PORTRAIT = ORIENT == "portrait"
@@ -34,27 +25,21 @@ if PORTRAIT:
     config.frame_width = 9.0
 
 # ---------------------------------------------------------------- palette
-# Simpson's-cartoon palette: sky blue, Simpsons yellow, thick dark outlines on everything.
-BG = "#6EB4E8"
-CLOUD = "#FFFFFF"
-SKY = "#2A7FC1"          # emphasis that still reads on the white caption bubbles
-PANEL = "#FFFFFF"
-PANEL_EDGE = "#232E3B"
-OUTLINE = "#232E3B"
-TEXT = "#232E3B"
-MUTED = "#2C3E54"        # dark slate: still reads as "secondary" on the sky, but keeps contrast
-NODE_OFF = "#FFF3C4"
-NODE_EDGE = "#232E3B"
-NODE_ON = "#FFD90F"
-SIGNAL = "#FFB400"
-POS = "#2E77C2"
-NEG = "#E03A3E"
-EDGE_BASE = "#3F5266"
-ERR = "#E03A3E"
-OK = "#2F9E44"
-ACCENT = "#E3990A"       # amber, for small marks that must read on white
-FONT = "Comic Neue"
-FONT_HEAD = "Luckiest Guy"
+BG = "#0B0F17"
+PANEL = "#141B27"
+PANEL_EDGE = "#243044"
+TEXT = "#E6EAF0"
+MUTED = "#8A94A6"
+NODE_OFF = "#1A2231"
+NODE_EDGE = "#3A475C"
+NODE_ON = "#7DD3FC"
+SIGNAL = "#BAF2FF"
+POS = "#5B9BF0"
+NEG = "#E9A23B"
+EDGE_BASE = "#2C3749"
+ERR = "#FF6B6B"
+OK = "#4ADE80"
+FONT = "Inter"
 
 CLASSES = ["cat", "dog", "rabbit", "bird"]
 # scripted predictions per pass (cat, dog, rabbit, bird)
@@ -76,21 +61,7 @@ def txt(s, size=28, color=TEXT, weight=NORMAL):
     return Text(s, font=FONT, font_size=size, color=color, weight=weight)
 
 
-def head(s, size=28, color=NODE_ON):
-    """Chunky cartoon lettering: yellow fill with a thick dark outline behind it."""
-    t = Text(s, font=FONT_HEAD, font_size=size, color=color, weight=NORMAL)
-    t.set_stroke(OUTLINE, width=max(2.0, size / 11), background=True)
-    return t
-
-
-def fit(m, max_w):
-    """Scale a mobject down so it cannot run off the frame (display fonts vary in width)."""
-    if m.width > max_w:
-        m.scale(max_w / m.width)
-    return m
-
-
-HL = {"*": SKY, "~": ERR, "^": OK}
+HL = {"*": NODE_ON, "~": ERR, "^": OK}
 
 
 def markup(s, width_chars, size, color=TEXT):
@@ -111,48 +82,43 @@ def rate_after(start, rf=smooth):
 
 # ---------------------------------------------------------------- cat art
 def cat_picture(size=2.4):
-    """Flat cartoon cat: yellow fur, big round eyes, everything outlined in dark ink."""
     card = RoundedRectangle(width=size, height=size, corner_radius=0.18,
                             fill_color=PANEL, fill_opacity=1,
-                            stroke_color=OUTLINE, stroke_width=4)
-    bg = Circle(radius=0.92, fill_color="#CDE7FA", fill_opacity=1, stroke_width=0).shift(DOWN * 0.05)
-    fur, dark, cream, pink = "#FFD90F", "#E3A200", "#FFF6DF", "#F58EA8"
+                            stroke_color=PANEL_EDGE, stroke_width=2)
+    bg = Circle(radius=0.92, fill_color="#1E2A3D", fill_opacity=1, stroke_width=0).shift(DOWN * 0.05)
+    fur, dark, cream, pink = "#F2A65A", "#D27F35", "#FBE3C4", "#F4A6B0"
     ears = VGroup()
     for s in (-1, 1):
         ear = Polygon([s * 0.70, 0.12, 0], [s * 0.50, 0.86, 0], [s * 0.12, 0.42, 0],
-                      fill_color=fur, fill_opacity=1, stroke_color=OUTLINE, stroke_width=3.5)
+                      fill_color=fur, fill_opacity=1, stroke_width=0)
         inner = Polygon([s * 0.58, 0.22, 0], [s * 0.49, 0.68, 0], [s * 0.26, 0.40, 0],
-                        fill_color=pink, fill_opacity=1, stroke_color=OUTLINE, stroke_width=2)
+                        fill_color=pink, fill_opacity=1, stroke_width=0)
         ears.add(ear, inner)
-    head = Ellipse(width=1.56, height=1.28, fill_color=fur, fill_opacity=1,
-                   stroke_color=OUTLINE, stroke_width=3.5).shift(DOWN * 0.1)
+    head = Ellipse(width=1.56, height=1.28, fill_color=fur, fill_opacity=1, stroke_width=0).shift(DOWN * 0.1)
     stripes = VGroup(*[
         Line([x, 0.50 - abs(x) * 0.5, 0], [x * 0.8, 0.28 - abs(x) * 0.4, 0],
-             stroke_color=dark, stroke_width=6, cap_style=CapStyleType.ROUND)
+             stroke_color=dark, stroke_width=5, cap_style=CapStyleType.ROUND)
         for x in (-0.14, 0.0, 0.14)
     ])
-    muzzle = Ellipse(width=0.78, height=0.46, fill_color=cream, fill_opacity=1,
-                     stroke_color=OUTLINE, stroke_width=2.5).shift(DOWN * 0.40)
+    muzzle = Ellipse(width=0.78, height=0.46, fill_color=cream, fill_opacity=1, stroke_width=0).shift(DOWN * 0.40)
     eyes = VGroup()
     for s in (-1, 1):
-        white = Ellipse(width=0.34, height=0.36, fill_color=WHITE, fill_opacity=1,
-                        stroke_color=OUTLINE, stroke_width=2.5).move_to([s * 0.31, 0.0, 0])
-        pupil = Ellipse(width=0.13, height=0.19, fill_color="#111111", fill_opacity=1,
-                        stroke_width=0).move_to(white.get_center() + [0, -0.03, 0])
-        glint = Circle(radius=0.032, fill_color=WHITE, fill_opacity=1, stroke_width=0).move_to(
-            pupil.get_center() + [0.03, 0.06, 0])
-        eyes.add(white, pupil, glint)
-    nose = Polygon([-0.09, -0.25, 0], [0.09, -0.25, 0], [0, -0.35, 0],
-                   fill_color=pink, fill_opacity=1, stroke_color=OUTLINE, stroke_width=2)
+        iris = Ellipse(width=0.25, height=0.29, fill_color="#9BD35A", fill_opacity=1,
+                       stroke_color="#3B4A1F", stroke_width=1.5).move_to([s * 0.31, 0.0, 0])
+        pupil = Ellipse(width=0.07, height=0.22, fill_color="#111", fill_opacity=1, stroke_width=0).move_to(iris)
+        glint = Circle(radius=0.028, fill_color=WHITE, fill_opacity=1, stroke_width=0).move_to(iris.get_center() + [0.04, 0.06, 0])
+        eyes.add(iris, pupil, glint)
+    nose = Polygon([-0.08, -0.25, 0], [0.08, -0.25, 0], [0, -0.34, 0],
+                   fill_color=pink, fill_opacity=1, stroke_color="#C9707E", stroke_width=1)
     mouth = VGroup(
-        ArcBetweenPoints([0, -0.35, 0], [-0.15, -0.38, 0], angle=-PI * 0.7),
-        ArcBetweenPoints([0.15, -0.38, 0], [0, -0.35, 0], angle=-PI * 0.7),
-    ).set_stroke(OUTLINE, 2.5)
+        ArcBetweenPoints([0, -0.34, 0], [-0.14, -0.37, 0], angle=-PI * 0.7),
+        ArcBetweenPoints([0.14, -0.37, 0], [0, -0.34, 0], angle=-PI * 0.7),
+    ).set_stroke("#6B4A3A", 2)
     whiskers = VGroup()
     for s in (-1, 1):
         for dy in (-0.02, -0.11, -0.20):
             whiskers.add(Line([s * 0.30, -0.33, 0], [s * 0.86, -0.33 + dy * 1.6 + 0.08, 0],
-                              stroke_color=OUTLINE, stroke_width=2.2, stroke_opacity=0.9))
+                              stroke_color="#FFF5E6", stroke_width=1.6, stroke_opacity=0.85))
     cat = VGroup(ears, head, stripes, muzzle, eyes, nose, mouth, whiskers).scale(size / 2.4 * 1.02)
     cat.move_to(card.get_center() + DOWN * 0.02 * size)
     bg.scale(size / 2.4).move_to(card)
@@ -165,7 +131,7 @@ def generic_picture(size=2.4):
     card = RoundedRectangle(width=size, height=size, corner_radius=0.18, fill_color=PANEL, fill_opacity=1,
                             stroke_color=PANEL_EDGE, stroke_width=2)
     frame = RoundedRectangle(width=1.7 * k, height=1.3 * k, corner_radius=0.12 * k, fill_opacity=0,
-                             stroke_color=OUTLINE, stroke_width=3, stroke_opacity=0.85)
+                             stroke_color=MUTED, stroke_width=3, stroke_opacity=0.6)
     bl = frame.get_corner(DL)
     hills = VGroup(
         Polygon(bl + [0.12 * k, 0.12 * k, 0], bl + [0.62 * k, 0.72 * k, 0], bl + [1.05 * k, 0.12 * k, 0]),
@@ -173,32 +139,23 @@ def generic_picture(size=2.4):
     ).set_fill(MUTED, 0.28).set_stroke(width=0)
     sun = Circle(radius=0.14 * k, fill_color=MUTED, fill_opacity=0.35, stroke_width=0).move_to(
         frame.get_corner(UR) + [-0.36 * k, -0.34 * k, 0])
-    q = Text("?", font=FONT_HEAD, font_size=int(96 * k), color=ACCENT, weight=NORMAL).move_to(frame)
+    q = Text("?", font=FONT, font_size=int(96 * k), color=NODE_ON, weight=BOLD).move_to(frame)
     return VGroup(card, frame, hills, sun, q)
 
 
 def check_mark(color=OK, s=0.2):
-    return VMobject(stroke_color=color, stroke_width=7).set_points_as_corners(
+    return VMobject(stroke_color=color, stroke_width=5).set_points_as_corners(
         [[-s, 0, 0], [-s * 0.3, -s * 0.7, 0], [s, s * 0.8, 0]])
 
 
-def cross_mark(color=ERR, s=0.18):
-    return VGroup(Line([-s, -s, 0], [s, s, 0]), Line([-s, s, 0], [s, -s, 0])).set_stroke(color, 7)
+def cross_mark(color=ERR, s=0.16):
+    return VGroup(Line([-s, -s, 0], [s, s, 0]), Line([-s, s, 0], [s, -s, 0])).set_stroke(color, 5)
 
 
 def edge_style(w):
     m = min(abs(w), 1.3) / 1.3
     col = interpolate_color(ManimColor(EDGE_BASE), ManimColor(POS if w > 0 else NEG), 0.25 + 0.75 * m)
-    return col, 0.9 + 3.0 * m, 0.42 + 0.5 * m
-
-
-def cloud(scale=1.0):
-    """A puffy cartoon cloud, for the sky background."""
-    puffs = VGroup(*[
-        Circle(radius=r, fill_color=CLOUD, fill_opacity=0.9, stroke_width=0).move_to([x, y, 0])
-        for x, y, r in ((-0.55, 0.0, 0.34), (0.0, 0.16, 0.46), (0.55, 0.0, 0.34), (0.0, -0.16, 0.36))
-    ])
-    return puffs.scale(scale)
+    return col, 0.5 + 2.6 * m, 0.22 + 0.55 * m
 
 
 # ---------------------------------------------------------------- scene
@@ -227,7 +184,7 @@ class NeuralNet(Scene):
             else:
                 pts = [[xs[li], -o + cy, 0] for o in offs]
             layer = VGroup(*[Circle(radius=r, fill_color=NODE_OFF, fill_opacity=1,
-                                    stroke_color=OUTLINE, stroke_width=3).move_to(pt) for pt in pts])
+                                    stroke_color=NODE_EDGE, stroke_width=2).move_to(pt) for pt in pts])
             glow = VGroup(*[Circle(radius=r * 2.1, fill_color=NODE_ON, fill_opacity=0,
                                    stroke_width=0).move_to(c) for c in layer])
             self.nodes.append(layer)
@@ -253,21 +210,20 @@ class NeuralNet(Scene):
             y = node.get_y()
             if PORTRAIT:
                 W = 1.45
-                lab = Text(CLASSES[k], font=FONT_HEAD, font_size=30, color=TEXT).move_to(node.get_center() + DOWN * 0.68)
-                track = RoundedRectangle(width=W, height=0.18, corner_radius=0.09, fill_color=PANEL,
-                                         fill_opacity=1, stroke_color=OUTLINE, stroke_width=2).move_to(node.get_center() + DOWN * 1.12)
+                lab = txt(CLASSES[k], 30, MUTED).move_to(node.get_center() + DOWN * 0.68)
+                track = RoundedRectangle(width=W, height=0.18, corner_radius=0.09, fill_color="#FFFFFF",
+                                         fill_opacity=0.07, stroke_width=0).move_to(node.get_center() + DOWN * 1.12)
             else:
-                lab = Text(CLASSES[k], font=FONT_HEAD, font_size=26, color=TEXT).move_to([x0, y, 0], aligned_edge=LEFT)
-                track = RoundedRectangle(width=W, height=0.16, corner_radius=0.08, fill_color=PANEL,
-                                         fill_opacity=1, stroke_color=OUTLINE, stroke_width=2).move_to([bx + W / 2, y, 0])
+                lab = txt(CLASSES[k], 26, MUTED).move_to([x0, y, 0], aligned_edge=LEFT)
+                track = RoundedRectangle(width=W, height=0.16, corner_radius=0.08, fill_color="#FFFFFF",
+                                         fill_opacity=0.07, stroke_width=0).move_to([bx + W / 2, y, 0])
             vt = ValueTracker(0)
 
             def mk_bar(vt=vt, track=track, k=k):
                 w = max(vt.get_value() * track.width, 1e-3)
                 h = track.height
                 bar = RoundedRectangle(width=w, height=h, corner_radius=min(h, w) / 2,
-                                       fill_color=self.bar_colors[k], fill_opacity=1,
-                                       stroke_color=OUTLINE, stroke_width=1.5)
+                                       fill_color=self.bar_colors[k], fill_opacity=1, stroke_width=0)
                 return bar.align_to(track, LEFT).set_y(track.get_y())
 
             def mk_pct(vt=vt, track=track):
@@ -305,17 +261,13 @@ class NeuralNet(Scene):
             return
         s = short if (PORTRAIT and short) else s
         if PORTRAIT:
-            m = markup(s, 30, 34).move_to([0, -5.05, 0])
+            m = markup(s, 30, 36).move_to([0, -5.05, 0])
         else:
-            m = markup(s, 74, 26).move_to([0, -3.25, 0])
-        # cartoon speech bubble behind the line, so captions read against the sky
-        g = VGroup(SurroundingRectangle(m, buff=0.22, corner_radius=0.22, color=OUTLINE,
-                                        stroke_width=2.5, fill_color=PANEL, fill_opacity=0.96), m)
-        fit(g, config.frame_width - 0.9)
+            m = markup(s, 74, 27).move_to([0, -3.25, 0])
         if self.cap is not None:
             self.play(FadeOut(self.cap, shift=UP * 0.1), run_time=T(0.3))
-        self.play(FadeIn(g, shift=UP * 0.1), run_time=T(0.45))
-        self.cap = g
+        self.play(FadeIn(m, shift=UP * 0.1), run_time=T(0.45))
+        self.cap = m
         if wait is None:
             wait = 0.6 + 0.26 * len(s.split())
             if PORTRAIT:
@@ -324,16 +276,14 @@ class NeuralNet(Scene):
             self.wait(wait)
 
     def chip(self, pass_no, phase, color=NODE_ON):
-        # the pass number keeps a phase colour that still reads on the white pill
-        accent = {"#FFD90F": ACCENT}.get(color, color)
         parts = []
         if pass_no:
-            parts.append(Text(f"PASS {pass_no}", font=FONT_HEAD, font_size=22, color=accent))
-            parts.append(Dot(radius=0.035, color=OUTLINE))
+            parts.append(txt(f"PASS {pass_no}", 20, color, weight=BOLD))
+            parts.append(Dot(radius=0.03, color=MUTED))
         parts.append(txt(phase, 20, TEXT))
         g = VGroup(*parts).arrange(RIGHT, buff=0.16)
-        pill = RoundedRectangle(width=g.width + 0.5, height=0.54, corner_radius=0.27,
-                                fill_color=PANEL, fill_opacity=1, stroke_color=OUTLINE, stroke_width=2.5)
+        pill = RoundedRectangle(width=g.width + 0.5, height=0.5, corner_radius=0.25,
+                                fill_color=PANEL, fill_opacity=1, stroke_color=PANEL_EDGE, stroke_width=1.5)
         c = VGroup(pill, g.move_to(pill))
         if PORTRAIT:
             c.scale(1.25).move_to([0, 7.15, 0])
@@ -352,8 +302,8 @@ class NeuralNet(Scene):
     def build_error_meter(self):
         self.loss_vt = ValueTracker(LOSS[0])
         label = txt("Error (loss)", 18, MUTED)
-        track = RoundedRectangle(width=1.9, height=0.14, corner_radius=0.07, fill_color=PANEL,
-                                 fill_opacity=1, stroke_color=OUTLINE, stroke_width=2)
+        track = RoundedRectangle(width=1.9, height=0.12, corner_radius=0.06, fill_color=WHITE,
+                                 fill_opacity=0.08, stroke_width=0)
         top = VGroup(label, txt("0.00", 24, TEXT, weight=BOLD)).arrange(RIGHT, buff=0.3)
         meter = VGroup(top, track).arrange(DOWN, buff=0.14, aligned_edge=LEFT)
         if PORTRAIT:
@@ -372,8 +322,7 @@ class NeuralNet(Scene):
             w = max(tr.width * min(v / 2.0, 1), 1e-3)
             col = interpolate_color(ManimColor(OK), ManimColor(ERR), min(v / 1.6, 1))
             return RoundedRectangle(width=w, height=tr.height, corner_radius=min(w, tr.height) / 2,
-                                    fill_color=col, fill_opacity=1, stroke_color=OUTLINE,
-                                    stroke_width=1.2).align_to(tr, LEFT).set_y(tr.get_y())
+                                    fill_color=col, fill_opacity=1, stroke_width=0).align_to(tr, LEFT).set_y(tr.get_y())
 
         ph = top[1]
         top.remove(ph)
@@ -407,7 +356,7 @@ class NeuralNet(Scene):
 
     def highlight_row(self, k, color):
         row = VGroup(self.labels[k], self.rows[k][1], self.pcts[k])
-        box = SurroundingRectangle(row, color=color, buff=0.12, corner_radius=0.1, stroke_width=3.5)
+        box = SurroundingRectangle(row, color=color, buff=0.12, corner_radius=0.1, stroke_width=2.5)
         icon = (check_mark(color) if color == OK else cross_mark(color))
         if PORTRAIT:
             icon.scale(1.2).next_to(box, DOWN, buff=0.16)
@@ -455,7 +404,7 @@ class NeuralNet(Scene):
         body = VGroup(txt("weight", 18, MUTED), txt(f"{w0:+.2f}", 20, TEXT),
                       txt("→", 20, MUTED), txt(f"{w1:+.2f}", 20, OK, weight=BOLD)).arrange(RIGHT, buff=0.12)
         pill = RoundedRectangle(width=body.width + 0.4, height=0.46, corner_radius=0.23, fill_color=PANEL,
-                                fill_opacity=0.98, stroke_color=ERR, stroke_width=2.5)
+                                fill_opacity=0.96, stroke_color=ERR, stroke_width=1.5)
         tag = VGroup(pill, body.move_to(pill)).scale(s)
         if PORTRAIT:
             tag.scale(1.3).move_to([line.get_center()[0] - 1.2, self.nodes[2][0].get_y() + 0.78, 0])
@@ -529,19 +478,12 @@ class NeuralNet(Scene):
             self.picture = cat_picture(2.4).move_to([-5.5, 0.2, 0])
         pic_label = txt("input image", 18, MUTED).next_to(self.picture, DOWN, buff=0.16)
 
-        # ---- cartoon sky
-        if PORTRAIT:
-            sky = [(3.35, 7.0, 0.75), (-3.9, 6.85, 0.6), (3.7, -3.9, 0.8)]
-        else:
-            sky = [(-6.1, 2.7, 0.8), (6.0, 2.75, 0.7), (-5.2, -2.3, 0.6), (6.45, -0.9, 0.75)]
-        self.add(VGroup(*[cloud(s).move_to([x, y, 0]) for x, y, s in sky]))
-
         # ---- title
-        title = fit(head("How a Neural Network Learns", 56 if not PORTRAIT else 52), 12.4)
+        title = txt("How a Neural Network Learns", 58 if not PORTRAIT else 50, TEXT, weight=BOLD)
         sub = txt("forward pass  ·  backpropagation  ·  weight updates", 26, MUTED)
         tgroup = VGroup(title, sub).arrange(DOWN, buff=0.35)
         if PORTRAIT:
-            title2 = fit(VGroup(head("How a Neural", 52), head("Network Learns", 52)).arrange(DOWN, buff=0.2), 7.4)
+            title2 = VGroup(txt("How a Neural", 58, TEXT, weight=BOLD), txt("Network Learns", 58, TEXT, weight=BOLD)).arrange(DOWN, buff=0.2)
             sub = txt("forward pass · backprop · weights", 28, MUTED)
             tgroup = VGroup(title2, sub).arrange(DOWN, buff=0.4).move_to([0, 0.6, 0])
         self.mark("start")
@@ -579,10 +521,10 @@ class NeuralNet(Scene):
         veil = Rectangle(width=config.frame_width + 1, height=config.frame_height + 1, fill_color=BG,
                          fill_opacity=0.88, stroke_width=0)
         if PORTRAIT:
-            ttl = fit(VGroup(head("Here's how the network", 42),
-                             head("is trained", 42)).arrange(DOWN, buff=0.18).move_to(UP * 0.8), 7.2)
+            ttl = VGroup(txt("Here's how the network", 44, TEXT, weight=BOLD),
+                         txt("is trained", 44, TEXT, weight=BOLD)).arrange(DOWN, buff=0.18).move_to(UP * 0.8)
         else:
-            ttl = fit(head("Here's how the network is trained", 44), 11.5).move_to(UP * 0.25)
+            ttl = txt("Here's how the network is trained", 46, TEXT, weight=BOLD).move_to(UP * 0.25)
         rule = Line(LEFT, RIGHT, stroke_color=NODE_ON, stroke_width=3).set_width(ttl.width * 0.35)
         rule.next_to(ttl, DOWN, buff=0.3)
         fade_cap = [FadeOut(self.cap)] if self.cap is not None else []
@@ -717,7 +659,7 @@ class NeuralNet(Scene):
         for s, c in zip(steps, cols):
             t = txt(s, 26 if not PORTRAIT else 28, TEXT)
             p = RoundedRectangle(width=t.width + 0.6, height=0.66, corner_radius=0.33, fill_color=PANEL,
-                                 fill_opacity=1, stroke_color=c, stroke_width=3)
+                                 fill_opacity=1, stroke_color=c, stroke_width=2)
             chips.add(VGroup(p, t.move_to(p)))
         arrows = VGroup()
         if PORTRAIT:  # vertical list with a return arc on the left
@@ -746,10 +688,9 @@ class NeuralNet(Scene):
         self.caption("That's training: this loop, repeated over *millions of images*, until the network gets them right.",
                      "That's training: this loop, repeated over *millions of images*.")
         if PORTRAIT:
-            end = fit(VGroup(head("How a Neural", 46),
-                             head("Network Learns", 46)).arrange(DOWN, buff=0.15).move_to(UP * 0.6), 7.4)
+            end = VGroup(txt("How a Neural", 48, TEXT, weight=BOLD), txt("Network Learns", 48, TEXT, weight=BOLD)).arrange(DOWN, buff=0.15).move_to(UP * 0.6)
         else:
-            end = fit(head("How a Neural Network Learns", 44), 11.5).move_to(DOWN * 0.2)
+            end = txt("How a Neural Network Learns", 40, TEXT, weight=BOLD).move_to(DOWN * 0.2)
         self.play(FadeOut(VGroup(chips, arrows, center)), FadeOut(self.cap), run_time=T(0.8))
         fs = 22 if not PORTRAIT else 28
         footer = VGroup(txt("Created by", fs, MUTED).set_opacity(0.6),

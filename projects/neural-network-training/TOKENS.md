@@ -1,6 +1,6 @@
 # Token spend: neural-network-training
 
-Snapshot as of 2026-09-26, covering every iteration (v1–v7), including the work before this explainer moved into the repository. v7's session also covered repository-wide changes (the render interface, `templates/explainer/`, `AGENTS.md`), which are counted here too. Counted from the Claude Code session transcripts; not updated automatically.
+Snapshot as of 2026-09-26, covering every iteration (v1–v7), including the work before this story moved into the repository. v7's session also covered repository-wide changes (the render interface, `templates/story/`, `AGENTS.md`), which are counted here too. Counted from the Claude Code session transcripts; not updated automatically.
 
 | Model | API calls | Tokens | Cost |
 |---|---:|---:|---:|

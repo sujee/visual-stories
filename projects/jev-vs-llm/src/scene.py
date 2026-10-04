@@ -1,6 +1,6 @@
 """Jev: TypeSafe AI's System One model - typed decisions with calibrated probabilities.
 
-Normally rendered through ../render.sh. To run Manim directly, from the explainer directory:
+Normally rendered through ../render.sh. To run Manim directly, from the story directory:
   JEV_ORIENT=landscape uv run manim -qk --frame_rate 30 src/scene.py JevExplainer
   JEV_ORIENT=portrait  uv run manim -qk --frame_rate 30 src/scene.py JevExplainer
 Timeline events (for music sync) are written to workspace/tmp/events_<orient>.json.

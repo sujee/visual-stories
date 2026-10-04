@@ -1,7 +1,7 @@
 [project]
-name = "neural-network-training-cartoon"
+name = "neural-network-training"
 version = "1.0.0"
-description = "Manim explainer, cartoon style: how a neural network learns (forward pass, backpropagation, weight updates)"
+description = "Manim story: how a neural network learns (forward pass, backpropagation, weight updates)"
 readme = "README.md"
 requires-python = "==3.11.*"
 dependencies = [

@@ -1,7 +1,7 @@
 [project]
 name = "jev-vs-llm"
 version = "0.1.0"
-description = "Manim explainer: Jev, TypeSafe AI's System One model (typed decisions with calibrated probabilities)"
+description = "Manim story: Jev, TypeSafe AI's System One model (typed decisions with calibrated probabilities)"
 readme = "README.md"
 requires-python = "==3.11.*"
 dependencies = [

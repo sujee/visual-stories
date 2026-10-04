@@ -37,7 +37,7 @@ Upload the full video first, because the Short links to it.
 ## 4. Back in the repo
 
 - `README.md`: replace "coming soon" with the video and Short links.
-- Root `README.md`: add a row to the Explainers table.
+- Root `README.md`: add a row to the Stories table.
 - A GitHub release `jev-vs-llm-v1` with the four 4K masters from `workspace/preview/<version>/`, linked from both READMEs.
 
 ---
@@ -61,7 +61,7 @@ Facts and performance figures are TypeSafe AI's own, from its launch post (Septe
 They are the company's benchmarks; no independent evaluation had been published at the time of making.
 Probabilities and counts shown on screen are illustrative.
 
-Source, brief and how to reproduce or remix it: https://github.com/sujee/visual-explainers/tree/main/explainers/jev-vs-llm
+Source, brief and how to reproduce or remix it: https://github.com/sujee/visual-stories/tree/main/projects/jev-vs-llm
 Video and music: CC BY 4.0. Code: Apache-2.0.
 
 Created by sujee.dev

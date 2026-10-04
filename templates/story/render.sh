@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Render the explainer. Output goes to workspace/preview/<version>/ (see README.md).
+# Render the story. Output goes to workspace/preview/<version>/ (see README.md).
 #
 #   ./render.sh [quality] [version]
 #
@@ -12,7 +12,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-NAME=$(basename "$PWD")                     # the explainer directory name
+NAME=$(basename "$PWD")                     # the story directory name
 QUALITY=${1:-final}
 VER=${2:-$(date +%Y-%m-%d_%H%M%S)}
 case $QUALITY in

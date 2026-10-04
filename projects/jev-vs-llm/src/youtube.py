@@ -13,7 +13,7 @@ import json
 import sys
 
 NAME = "jev-vs-llm"
-REPO = f"https://github.com/sujee/visual-explainers/tree/main/explainers/{NAME}"
+REPO = f"https://github.com/sujee/visual-stories/tree/main/projects/{NAME}"
 SOURCE = "https://typesafe.ai/blog/introducing-system-one-models-and-jev"
 PLAYLIST = "Visual Explainers"
 
@@ -116,7 +116,7 @@ Upload the full video first, because the Short links to it.
 ## 4. Back in the repo
 
 - `README.md`: replace "coming soon" with the video and Short links.
-- Root `README.md`: add a row to the Explainers table.
+- Root `README.md`: add a row to the Stories table.
 - A GitHub release `{NAME}-v1` with the four 4K masters from `workspace/preview/<version>/`, linked from both READMEs.
 
 ---
