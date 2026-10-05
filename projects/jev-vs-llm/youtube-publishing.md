@@ -22,7 +22,7 @@ Upload the full video first, because the Short links to it.
 ## 2. Upload the Short (0:36)
 
 1. Upload `workspace/preview/<version>/jev-vs-llm-<version>-9x16-4k.mp4`. It's vertical and under 3 minutes, so YouTube treats it as a Short.
-2. **Title:** `Most AI models write. Jev decides. #Shorts`
+2. **Title:** `Most AI models write. Jev decides.`
 3. **Description:** paste the "Short description" below, with the full video's URL in place of `<insert link to the full video>`.
 4. **Related video:** set it to the full video, so viewers can tap through from the Short.
 5. **Thumbnail:** if your YouTube app offers a custom Short thumbnail, use

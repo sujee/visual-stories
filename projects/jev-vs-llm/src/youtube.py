@@ -18,7 +18,7 @@ SOURCE = "https://typesafe.ai/blog/introducing-system-one-models-and-jev"
 PLAYLIST = "Visual Explainers"
 
 TITLE = "Jev vs. LLMs: a model that decides instead of writing | Explainer Video"
-SHORT_TITLE = "Most AI models write. Jev decides. #Shorts"
+SHORT_TITLE = "Most AI models write. Jev decides."
 # The first three hashtags show above the title on YouTube; keep the total well under 15.
 HASHTAGS = "#AI #LLM #ExplainerVideo #Jev"
 SHORT_HASHTAGS = "#Shorts #AI #LLM #Jev #ExplainerVideo"
