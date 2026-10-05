@@ -1,0 +1,14 @@
+[project]
+name = "linux-history"
+version = "0.1.0"
+description = "Pillow + NumPy story: 57 years of Linux history in 2 minutes, with an original synthwave soundtrack"
+readme = "README.md"
+requires-python = "==3.13.*"
+dependencies = [
+    "numpy==2.5.3",
+    "pillow==12.3.0",
+    "scipy==1.18.1",
+]
+
+[tool.uv]
+package = false
