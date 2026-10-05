@@ -118,6 +118,10 @@ prefill-vs-decode-v5-9x16-4k.mp4
 
 `workspace/`, generated videos and renders, `node_modules/`, `.venv/`, caches, large intermediates, unused generated assets, secrets and `.env` files, and AI conversation transcripts. Final masters are archived externally and published to platforms such as YouTube (and attached to a GitHub release). The exceptions are the small publishing files outside `workspace/`, `thumbnails/` (written by `render.sh`) and `youtube-publishing.md` (hand-editable; `render.sh` refreshes only its chapters): they are tracked so they can be shared without rendering.
 
+## Git discipline
+
+- **Don't commit or push without confirming with the human first.** Before every commit and push — including commits of README links, notes, or guide edits — propose what you'll commit and wait for the human's yes. An explicit "commit it" or "push it" counts as confirmation for that change only; silence or a new task does not.
+
 ## Iteration Workflow
 
 1. For a new story, copy `templates/story/`, write `brief.md` first and get it reviewed. Then render drafts as named versions (`v1`, `v2`, …) at draft quality.
