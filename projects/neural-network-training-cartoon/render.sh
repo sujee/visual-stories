@@ -11,6 +11,7 @@
 # final: 16:9 3840x2160 + 9:16 2160x3840, 30 fps, each with music and silent.
 set -euo pipefail
 cd "$(dirname "$0")"
+renice -n "${NICE:-10}" -p $$ > /dev/null   # low CPU priority (inherited by every job) keeps the machine usable; NICE=0 for full speed
 
 NAME=neural-network-training-cartoon
 QUALITY=${1:-final}

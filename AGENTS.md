@@ -56,6 +56,7 @@ Plain `./render.sh` must render every deliverable at final quality — reproduci
 - `quality`: draft or final (default). A draft is fast and may render only the main format.
 - `version`: the preview directory, `workspace/preview/<version>/`. Use `v1`, `v2`, … for review iterations; when omitted, use a `YYYY-MM-DD_HHMMSS` timestamp.
 - After each render, point `workspace/preview/latest` at the new directory.
+- Run at low CPU priority so the computer stays usable during long renders: `render.sh` starts with `renice -n "${NICE:-10}" -p $$` (every job it starts inherits it), and `NICE=0 ./render.sh …` restores full priority. Keep this line when writing a new `render.sh`.
 - Document the accepted quality values in `README.md`.
 - **Ask before rendering when quality is ambiguous.** A final render takes a long time (4K, every format). If a request like "render it", "produce the video" or "run it" doesn't say draft or final, ask which one before starting. Don't ask when it's explicit ("final render", "draft v3", `./render.sh draft v5`).
 
@@ -78,7 +79,7 @@ The brief's **Deliverables** says which videos to make and how long; these specs
 - **Vertical:** recompose the layout rather than cropping the 16:9 version; share content and animation logic where practical. Keep text and key visuals clear of the platform UI: roughly the bottom 15% and the right edge.
 - **Audio:** produce each video with music and silent (for remixers adding voiceover or their own track). Music must be original or redistributable; generating it deterministically in code is a good default. Normalize to about −14 LUFS integrated, true peak ≤ −1 dBTP.
 - **Social copies** (when the brief asks for them): at final quality, `render.sh` also writes a 1080p copy of each video with music (`<story>-<version>-<aspect>-1080p.mp4`), scaled from the 4K master. X, LinkedIn and Bluesky don't play 4K in the feed, and a smaller upload is faster and gets compressed less.
-- **YouTube publishing guide** (when the brief asks for one): `render.sh` writes `youtube-publishing.md` in the story directory (tracked, rewritten by every render): step-by-step upload instructions (the full video first, then the Short, which links to it; then link them both ways and update the READMEs) followed by a description for each video. Chapter timestamps come from the render's own timeline so they always match the video. YouTube only shows chapters if the first starts at 0:00, there are at least three, and each is at least 10 seconds; check this when generating it. Attribute sources and credit the way the video does. Don't hard-code the published YouTube URLs in the generator; print placeholders such as `<insert link to the Short>` to fill in at upload time.
+- **YouTube publishing guide** (when the brief asks for one): `youtube-publishing.md` in the story directory (tracked). The agent writes it and the human edits it freely, like any other doc: step-by-step upload instructions (the full video first, then the Short, which links to it; then link them both ways and update the READMEs) followed by a description for each video. Only the chapters are generated: the video description has a line reading `Chapters:` and, after the chapter lines, a line reading `---`; `render.sh` replaces everything between the two from the render's own timeline (chapter titles and start points live in the story's source, e.g. `src/youtube.py`), leaving the rest of the file untouched. YouTube only shows chapters if the first starts at 0:00, there are at least three, and each is at least 10 seconds; check this when generating them. Attribute sources and credit the way the video does. Don't write the published YouTube URLs into the guide; use placeholders such as `<insert link to the Short>` to fill in at upload time (the READMEs hold the published links). Other timings in the guide are written by hand (video lengths, when the outro starts for the end screen): after a final render, check them against the rendered files and, if they changed, propose the update and make it once the human confirms. Older stories may still generate the whole guide; check the story's `src/youtube.py` (or `render.sh`) before editing its guide by hand, since a render would overwrite those edits.
 - **Thumbnails** (when the brief asks for them): `render.sh` renders them as stills to `thumbnails/<story>-thumbnail-<design>-<aspect>.png` in the story directory (tracked, so they can be shared without rendering; rewritten by every render): 1280×720 for 16:9 and 1080×1920 for 9:16, each under 2 MB. Big type and one simple picture, readable at phone size; keep key content away from the bottom-right corner, where YouTube overlays the duration.
 - **Attribution:** end with a short, understated card showing the credit from the brief's **Credit** section. No Credit section, no card. Keep it easy for remixers to change or remove; don't add technical measures to enforce it.
 
@@ -113,14 +114,14 @@ prefill-vs-decode-v5-9x16-4k.mp4
 
 ## What Not to Commit
 
-`workspace/`, generated videos and renders, `node_modules/`, `.venv/`, caches, large intermediates, unused generated assets, secrets and `.env` files, and AI conversation transcripts. Final masters are archived externally and published to platforms such as YouTube (and attached to a GitHub release). The exceptions are the small publishing files `render.sh` writes outside `workspace/`, `thumbnails/` and `youtube-publishing.md`: they are tracked so they can be shared without rendering.
+`workspace/`, generated videos and renders, `node_modules/`, `.venv/`, caches, large intermediates, unused generated assets, secrets and `.env` files, and AI conversation transcripts. Final masters are archived externally and published to platforms such as YouTube (and attached to a GitHub release). The exceptions are the small publishing files outside `workspace/`, `thumbnails/` (written by `render.sh`) and `youtube-publishing.md` (hand-editable; `render.sh` refreshes only its chapters): they are tracked so they can be shared without rendering.
 
 ## Iteration Workflow
 
 1. For a new story, copy `templates/story/`, write `brief.md` first and get it reviewed. Then render drafts as named versions (`v1`, `v2`, …) at draft quality.
 2. Before presenting a draft, check rendered frames yourself — overlapping or clipped text, leftover elements, layout, timing — and fix what you find.
 3. The human reviews, usually with timestamped notes ("0:45: the caption overlaps the chart").
-4. Apply the notes, bump the version, and log what changed in `workspace/preview/NOTES.md` (a local work log, not committed). Drafts are not committed; Git records approved versions, one commit each.
+4. Apply the notes, bump the version, and log what changed in `workspace/preview/NOTES.md` (a local work log, not committed). When a note changes what the story says or shows (beats, wording, end card, deliverables), update `brief.md` in the same step, so the brief always describes the current version. Drafts are not committed; Git records approved versions, one commit each.
 5. Stop at drafts. Render final quality only after the human explicitly approves a version.
 6. When the human approves a version, offer to prepare the Repro Bundle (below), so they don't need to know to ask.
 7. Before committing changes to a story, or when the human asks to commit or whether to commit, check that the fresh-clone test (below) has passed on the files being committed. If it hasn't, or anything that affects the render (sources, assets, dependencies, `render.sh`) changed since it ran, ask the human whether to run it first — it takes a full final render. Commit without it only if they say so.
@@ -142,11 +143,38 @@ When finished, report: files to commit, files that must not be committed, the ex
 
 A story is done when it communicates the goals of `brief.md`, the user has approved it, the bundle checks above pass, and someone with only the repository can reproduce and remix it.
 
+## GitHub Release
+
+The 4K masters aren't committed; they're attached to a GitHub release, one per published version of a story. Publishing is outward-facing: create or edit a release only when the human asks, and confirm the title and files first.
+
+1. **Prerequisites:** the story is approved, committed and pushed (the release tags that commit), and the final render the human approved is in `workspace/preview/<version>/`.
+2. **Tag and title:** the tag is `<story>-v<N>`, numbered by published version (`v1` for the first release, `v2` if the story is re-published after changes), independent of the preview version. The title is the story's title.
+3. **Assets:** the four 4K masters, names unchanged: `<story>-<version>-{16x9,9x16}-4k.mp4` and `…-4k-silent.mp4`. Each file must be under 2 GiB (GitHub's limit); if one isn't, ask the human before re-encoding anything.
+4. **Notes,** in this form:
+
+   ```text
+   Final 4K masters, 30 fps: 16:9 landscape (<m:ss>) and 9:16 Short (<m:ss>), each with music and silent.
+   Watch: <video URL> · Short: <Short URL>
+   Reproduce or remix: see projects/<story>/.
+   Videos and soundtracks are licensed under CC BY 4.0; code under Apache-2.0.
+   ```
+
+5. **Create it** from the repository root, then check that every asset uploaded at the right size:
+
+   ```bash
+   gh release create <story>-v1 projects/<story>/workspace/preview/<version>/<story>-<version>-*-4k*.mp4 \
+     --title "<Story title>" --notes-file workspace/tmp/release-notes.md --target "$(git rev-parse HEAD)"
+   gh release view <story>-v1
+   ```
+
+6. **Link it:** in the story's `README.md`, after the Watch links (`Download the 4K masters: [release](<release URL>)`), and in the root `README.md` Stories table (`[4K release](<release URL>)`). Commit the link updates.
+
 ## Known Pitfalls
 
 Lessons from earlier stories; check these before they cost a draft.
 
-- **Don't overwrite the human's edits.** Before writing or regenerating a file, check `git status`/`git diff` for changes you didn't make. Generated-but-tracked files (`youtube-publishing.md`, `thumbnails/`) are rewritten by every render, so carry any hand edit into the source that generates them (or ask) first.
+- **Don't overwrite the human's edits.** Before writing or regenerating a file, check `git status`/`git diff` for changes you didn't make. `thumbnails/` is rewritten by every render, so carry any hand edit into the source that generates it (or ask) first. `youtube-publishing.md` keeps hand edits, except the chapter lines between `Chapters:` and `---`.
+- **Don't edit `render.sh` while it's running.** Bash reads a script as it executes it, so an edit mid-render (even one added line) shifts the rest of the file under the running process: a 70-minute final render failed at its last steps with a syntax error. Wait for the render to finish, or edit a copy.
 - **Look at frames, not just exit codes.** A render that succeeds can still have clipped, overlapping or wrapped text. Check both formats, including a full-size frame, not only a contact sheet.
 - **Lay out each format for itself.** A layout designed for 16:9 ends up small and top-heavy in 9:16. Build each scene's layout, then scale it to fill that format's safe area.
 - **Manim text:** small `font_size` values get uneven letter spacing (render larger and scale down). Pango wraps `Text` at the frame's *pixel* width, so large text can wrap in a 720p draft but not in the 4K final; widen the layout box while building text, or build one `Text` per line. Run Manim with `--media_dir` under `workspace/tmp/` (or through `render.sh`), or it writes a `media/` folder into the story.

@@ -30,7 +30,20 @@
 - YouTube thumbnails: <a few designs> for each video. <Delete this line if not needed.>
 
 ## Credit
-End card: **Created by <your name or site>**. Short and understated. Delete this section for no credit.
+Show these lines on the end card, word for word. Delete this section for no end card.
+
+**Full video (16:9):**
+```text
+Created by <your name or site>
+Liked this? A 👍 helps others discover it.   <optional: a short, playful like prompt; reword or delete this line>
+```
+
+**Short (9:16):**
+```text
+Created by <your name or site>
+```
+
+Keep them small and quiet, and away from the right side of the screen, where YouTube puts its end-screen buttons.
 
 ## Creative freedom
 You choose the visuals, story and pacing, within any Story beats above. This is a set of goals, not a scene-by-scene script.

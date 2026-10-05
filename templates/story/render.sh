@@ -11,6 +11,7 @@
 # Template: fill in the TODOs; the rest follows the Render Interface in AGENTS.md.
 set -euo pipefail
 cd "$(dirname "$0")"
+renice -n "${NICE:-10}" -p $$ > /dev/null   # low CPU priority (inherited by every job) keeps the machine usable; NICE=0 for full speed
 
 NAME=$(basename "$PWD")                     # the story directory name
 QUALITY=${1:-final}
@@ -40,9 +41,9 @@ render_thumbnails() {  # YouTube thumbnail stills: thumbnails/<name>-thumbnail-<
   echo "TODO: render_thumbnails in render.sh" >&2; exit 1
 }
 
-render_publishing() {  # write youtube-publishing.md: upload steps and descriptions, with chapter
-                       # timestamps from this render's own timeline (see AGENTS.md). Delete this, and
-                       # its call below, if the brief doesn't ask for a YouTube publishing guide.
+render_publishing() {  # refresh only the chapters between "Chapters:" and "---" in the hand-editable
+                       # youtube-publishing.md, from this render's own timeline (see AGENTS.md). Delete this,
+                       # and its call below, if the brief doesn't ask for a YouTube publishing guide.
   echo "TODO: render_publishing in render.sh" >&2; exit 1
 }
 
