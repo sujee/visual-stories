@@ -171,7 +171,7 @@ The 4K masters aren't committed; they're attached to a GitHub release, one per p
    gh release view <story>-v1
    ```
 
-6. **Link it:** in the story's `README.md`, after the Watch links (`Download the 4K masters: [release](<release URL>)`), and in the root `README.md` Stories table (`[4K release](<release URL>)`). Commit the link updates.
+6. **Link it:** in the story's `README.md`, after the Watch links (`Download the 4K masters: [release](<release URL>)`), and in the root `README.md` Stories table (`[release](<release URL>)`). Commit the link updates.
 
 ## Known Pitfalls
 
