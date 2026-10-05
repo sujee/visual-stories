@@ -4,7 +4,7 @@ Traces the history of Linux from birth to present: a 2-minute video and a 30-sec
 
 🎂 Published Oct 5, 2026: 35 years after Linus publicly released Linux 0.02.
 
-▶ Watch it: [video](https://youtu.be/lkOxEeqwMBo) · [Short](https://youtube.com/shorts/fmgBYJmWyXs)
+▶ Watch it: [video](https://youtu.be/lkOxEeqwMBo) · [Short](https://youtube.com/shorts/fmgBYJmWyXs) · Download the 4K masters: [release](https://github.com/sujee/visual-stories/releases/tag/linux-history-v1)
 
 ## Starter prompt
 
