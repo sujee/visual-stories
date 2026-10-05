@@ -23,6 +23,8 @@ projects/<story-name>/
 ├── assets/                  ← if needed
 ├── <manifest + lockfile>    ← dependencies, declared and locked
 ├── render.sh
+├── thumbnails/              ← if the brief asks for them: written by render.sh
+├── youtube-publishing.md    ← if the brief asks for it: written by the agent, edited by the human (see Technical Specs)
 ├── .gitignore               ← optional, for project-specific ignores (the root one covers the rest)
 ├── TOKENS.md                ← optional: token usage and cost (see Iteration Workflow)
 └── workspace/               ← git-ignored: previews, exports, scratch
@@ -123,8 +125,9 @@ prefill-vs-decode-v5-9x16-4k.mp4
 3. The human reviews, usually with timestamped notes ("0:45: the caption overlaps the chart").
 4. Apply the notes, bump the version, and log what changed in `workspace/preview/NOTES.md` (a local work log, not committed). When a note changes what the story says or shows (beats, wording, end card, deliverables), update `brief.md` in the same step, so the brief always describes the current version. Drafts are not committed; Git records approved versions, one commit each.
 5. Stop at drafts. Render final quality only after the human explicitly approves a version.
-6. When the human approves a version, offer to prepare the Repro Bundle (below), so they don't need to know to ask.
-7. Before committing changes to a story, or when the human asks to commit or whether to commit, check that the fresh-clone test (below) has passed on the files being committed. If it hasn't, or anything that affects the render (sources, assets, dependencies, `render.sh`) changed since it ran, ask the human whether to run it first — it takes a full final render. Commit without it only if they say so.
+6. When the human approves a version and the brief asks for a YouTube publishing guide, write `youtube-publishing.md` before the final render (or update it if it exists): start from `templates/story/youtube-publishing.md`, fill in titles, descriptions, pinned comment and tags from the approved version, and leave the `Chapters:` … `---` block for `render.sh` to fill. Ask the human to review the titles and descriptions; after the final render, check its hand-written timings (see Technical Specs).
+7. When the human approves a version, offer to prepare the Repro Bundle (below), so they don't need to know to ask.
+8. Before committing changes to a story, or when the human asks to commit or whether to commit, check that the fresh-clone test (below) has passed on the files being committed. If it hasn't, or anything that affects the render (sources, assets, dependencies, `render.sh`) changed since it ran, ask the human whether to run it first — it takes a full final render. Commit without it only if they say so.
 
 Optional: if you can measure your own usage, record tokens and cost across all iterations in `TOKENS.md`.
 
@@ -136,8 +139,9 @@ Once approved, turn the story directory into a **Repro Bundle**:
 2. Check that sources, assets, dependencies, lockfiles and `.gitignore` are complete; remove unused and temporary files.
 3. Make `README.md` match the actual workflow.
 4. Check that `brief.md` still captures the intent without becoming a scene-by-scene script.
-5. Run the **fresh-clone test**: in a fresh clone, or a copy of only the files Git would track, run the install steps and `./render.sh` with no arguments. Confirm every deliverable is produced and matches the approved version (compare frames and duration).
-6. Fix any problem you find. Don't state that reproduction should work — test it.
+5. If the brief asks for a YouTube publishing guide, check that `youtube-publishing.md` exists and matches the approved version: titles, descriptions, credits, video lengths and other hand-written timings.
+6. Run the **fresh-clone test**: in a fresh clone, or a copy of only the files Git would track, run the install steps and `./render.sh` with no arguments. Confirm every deliverable is produced and matches the approved version (compare frames and duration).
+7. Fix any problem you find. Don't state that reproduction should work — test it.
 
 When finished, report: files to commit, files that must not be committed, the exact commands to reproduce, and any remaining external requirements or limitations.
 

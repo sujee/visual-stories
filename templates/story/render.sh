@@ -44,6 +44,7 @@ render_thumbnails() {  # YouTube thumbnail stills: thumbnails/<name>-thumbnail-<
 render_publishing() {  # refresh only the chapters between "Chapters:" and "---" in the hand-editable
                        # youtube-publishing.md, from this render's own timeline (see AGENTS.md). Delete this,
                        # and its call below, if the brief doesn't ask for a YouTube publishing guide.
+                       # projects/linux-history/src/youtube.py is a working example.
   echo "TODO: render_publishing in render.sh" >&2; exit 1
 }
 
