@@ -6,7 +6,7 @@ The intent (what it shows, for whom, and what must come across) is in [brief.md]
 
 Working with a coding agent? The house rules are in [AGENTS.md](../../AGENTS.md) at the repository root: read it first.
 
-▶ Watch the finished story: [video](https://youtu.be/Ez7uIjdLnRQ) · [Short](https://youtube.com/shorts/-ioImu61b1s)
+▶ Watch the finished story: [video](https://youtu.be/Ez7uIjdLnRQ) · [Short](https://youtube.com/shorts/-ioImu61b1s) · Download the 4K masters: [release](https://github.com/sujee/visual-stories/releases/tag/le-chonk-off-v1)
 
 Publishing: see [youtube-publishing.md](youtube-publishing.md).
 
