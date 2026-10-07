@@ -1,0 +1,17 @@
+{
+  "name": "le-chonk-off",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cartoon story: five 1T+ open models as cats (size = parameters, perch = intelligence, heart = active parameters)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "1.63.0"
+  },
+  "scripts": {
+    "capture": "node src/capture.mjs",
+    "music": "node src/music.mjs --duration $(node src/capture.mjs --print-duration)"
+  }
+}

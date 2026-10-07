@@ -1,0 +1,6 @@
+model,vendor,total_params_b,active_params_b,intelligence_index,intelligence_index_version,release_date,weights_date,notes
+Kimi K3,Moonshot AI,2800,104,43.6,v4.3.2,2026-07-16,,Open weights. Kimi K3 (Max). An early search summary said 57; both Artificial Analysis pages say about 44.
+Qwen3.8,Alibaba,2400,95,39.9,v4.3.2,2026-08-12,,Open weights. Qwen3.8 2.4T A95B; the open-weight release of the Qwen3.8 flagship.
+DeepSeek-V4-Pro,DeepSeek,1600,49,36.0,v4.3.2,2026-08-13,,Open weights. Score is for the 0813 build (max effort); an earlier V4 Pro preview shipped on 2026-04-24.
+MiMo-V2.6-Pro,Xiaomi,1020,42,46,v4.3.2,2026-09-21,,"Open weights (MIT; Hugging Face XiaomiMiMo/MiMo-V2.6-Pro-RL per secondary sources, the model card itself was not readable). Reasoning variant. Artificial Analysis lists 1.0T total; other sources say 1.02T. Replaces MiMo-V2.5-Pro (26, deprecated)."
+Mistral Large 4,Mistral AI,1000,49,38.4,v4.3.2,2026-10-06,2026-10-31,On the API from release_date; open weights expected on weights_date. The index score is for the preview (Artificial Analysis lists it as proprietary until weights ship).

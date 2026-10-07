@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Le Chonk-Off</title>
+<style>
+@font-face{font-family:Chonk;font-weight:400;src:url(../assets/fonts/ComicNeue-Regular.ttf) format("truetype")}
+@font-face{font-family:Chonk;font-weight:700;src:url(../assets/fonts/ComicNeue-Bold.ttf) format("truetype")}
+@font-face{font-family:Chonk;font-weight:800 900;src:url(../assets/fonts/LuckiestGuy-Regular.ttf) format("truetype")}
+:root{--bg:#FFF4E2;--ink:#3A2112;--muted:#8A6A52;--fur:#F0903A;--stripe:#B8561B;--belly:#FFE2B8;--ear:#F5A58C;--line:#3A2112;--heart:#D8322B;--floor:#EBD3AE;--paper:#FFFFFF;--night:#2B3A67;--fish:#6FC3E8;--amber:#FFC24D;--ui:#FFFFFF;--water:#4FAEE0;--waterhi:#D6F1FF}
+@media (prefers-color-scheme:dark){:root{--bg:#1C130E;--ink:#F7E8D6;--muted:#BFA48C;--fur:#E8833A;--stripe:#9C4513;--belly:#F6C98E;--ear:#D98269;--line:#F7E8D6;--heart:#FF6B5E;--floor:#2E2016;--paper:#2A1C13;--night:#0E1330;--fish:#5BB3DA;--amber:#FFC24D;--ui:#2A1C13;--water:#2F7FA8;--waterhi:#8CCBE8}}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:Chonk,'Comic Sans MS',ui-rounded,system-ui,sans-serif}
+#stage{display:block;width:100%;height:auto;max-width:1778px;margin:0 auto}
+#bar{display:flex;gap:12px;align-items:center;max-width:900px;margin:8px auto 18px;padding:0 16px}
+#bar button{font:inherit;font-weight:700;padding:8px 16px;border-radius:999px;border:2px solid var(--line);background:var(--ui);color:var(--ink);cursor:pointer}
+#bar input{flex:1;accent-color:var(--fur)}
+#note{color:var(--muted);font-size:14px}
+#time{min-width:84px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+text{fill:var(--ink)}
+html.portrait #stage{max-width:calc((100vh - 110px)*9/16)}      /* vertical preview: fit the window height */
+/* capture mode (?capture): no controls, the stage fills the window; used by src/capture.mjs */
+html.capture,html.capture body{overflow:hidden}
+html.capture #bar{display:none}
+html.capture #stage{width:100vw;height:100vh;max-width:none;margin:0}
+</style>
+<script>if(/[?&]capture/.test(location.search))document.documentElement.classList.add('capture')</script>
+</head>
+<body>
+<svg id="stage" viewBox="-89 0 1778 1000" role="img" aria-label="Animated cartoon: five open models appear as cats whose size shows their parameter count. Hearts show active parameters per token. Mistral's Le Chonk is live on the API, with open weights expected Oct 31."></svg>
+<div id="bar">
+  <button id="play" aria-label="Play or pause">⏸</button>
+  <button id="replay">↻ Replay</button>
+  <button id="mute" aria-label="Mute or unmute" hidden>🔊</button>
+  <input id="scrub" type="range" min="0" max="17" step="0.01" value="0" aria-label="Timeline">
+  <span id="time">0.0 / 17 s</span>
+  <span id="note"></span>
+</div>
+<script type="module">
+await Promise.all([document.fonts.load('400 18px Chonk'),document.fonts.load('700 18px Chonk'),document.fonts.load('800 22px Chonk')]);   // measured text (provider dots) needs the real font
+const CAPTURE=document.documentElement.classList.contains('capture');
+/* ---------- helpers ---------- */
+const NS='http://www.w3.org/2000/svg';
+const el=(t,a={},p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e};
+const txt=(p,x,y,s,a={})=>{const t=el('text',{x,y,...a},p);t.textContent=s;return t};
+const clamp=(x,a=0,b=1)=>Math.min(b,Math.max(a,x));
+const seg=(t,a,b)=>clamp((t-a)/(b-a));
+const lerp=(a,b,u)=>a+(b-a)*u;
+const eIO=u=>u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2;
+const eOC=u=>1-Math.pow(1-u,3);
+const eOB=u=>{const c1=1.70158,c3=c1+1;return 1+c3*Math.pow(u-1,3)+c1*Math.pow(u-1,2)};
+const bump=(t,tp,pre=.15,len=.9)=>{const u=(t-tp+pre)/len;return u<0||u>1?0:Math.sin(u*Math.PI)};
+/* Two layouts share all the data and animation logic: landscape 16:9 (default) and vertical 9:16 (open the page with ?portrait).
+   The vertical one is recomposed, not cropped: smaller cats to fit the width, taller perches (vertical suits a height encoding),
+   bigger text, staggered name labels, and a two-line timeline; key content stays clear of the bottom ~15% and the right edge. */
+const PORTRAIT=/[?&](portrait|vertical)/.test(location.search);
+const THUMB=(location.search.match(/[?&]thumb=(\w+)/)||[])[1];     // ?thumb=lineup|question: a YouTube thumbnail (final scene, big type, no small text)
+const STILL=/[?&]still/.test(location.search)||!!THUMB;        // ?still: a clean frame for screenshots (no confetti)
+const THUMBS={lineup:['Le Chonk-Off','Recent 1T+ open models'], question:['Bigger = smarter?','Not always.']};
+if(PORTRAIT) document.documentElement.classList.add('portrait');
+const LY=PORTRAIT?{
+  vb:[0,0,1080,1920], cx:540, Y0:1090, rxMax:84, x0:90, gap:26, ts:1.25, bs:1.35, pxa:10, stag:150,
+  tl:{x0:100,x1:960,y:1560,rect:[40,1478,1000,150]},
+  title:{y0:880,y1:170,s0:150,s1:84,sub:80,ss:58}, cap:{y:262,s:40}, credit:{y:1440,s:28}, tag:{y:255,s:44}, axisX:36, axisT:22
+}:{
+  vb:[-89,0,1778,1000], cx:800, Y0:700, rxMax:140, x0:70, gap:30, ts:1, bs:1, pxa:4, stag:0,
+  tl:{x0:120,x1:1480,y:946,rect:[30,892,1540,104]},
+  title:{y0:330,y1:74,s0:120,s1:46,sub:62,ss:36}, cap:{y:128,s:34}, credit:{y:866,s:20}, tag:{y:122,s:30}, axisX:30, axisT:19
+};
+const [VBX,VBY,VBW,VBH]=LY.vb, SC=LY.rxMax/140;      // SC: how much smaller the cats (and their splashes) are than in landscape
+const T_END=15.6, CREDIT0=12.0, FIN=11.1, FISH0=8.4, CATCH=11.0, Y0=LY.Y0;
+const SINK=14, G=1400;                     // cats stand knee-deep in the pool; G = droplet gravity (px/s²)
+
+/* ---------- data + storyboard ---------- */
+/* Model data: copied from models.csv (keep the two in sync). */
+const CSV=[
+  {"model": "Kimi K3", "vendor": "Moonshot AI", "total_params_b": 2800, "active_params_b": 104, "intelligence_index": 43.6, "release_date": "2026-07-16", "weights_date": ""},
+  {"model": "Qwen3.8", "vendor": "Alibaba", "total_params_b": 2400, "active_params_b": 95, "intelligence_index": 39.9, "release_date": "2026-08-12", "weights_date": ""},
+  {"model": "DeepSeek-V4-Pro", "vendor": "DeepSeek", "total_params_b": 1600, "active_params_b": 49, "intelligence_index": 36.0, "release_date": "2026-08-13", "weights_date": ""},
+  {"model": "MiMo-V2.6-Pro", "vendor": "Xiaomi", "total_params_b": 1020, "active_params_b": 42, "intelligence_index": 46.0, "release_date": "2026-09-21", "weights_date": ""},
+  {"model": "Mistral Large 4", "vendor": "Mistral AI", "total_params_b": 1000, "active_params_b": 49, "intelligence_index": 38.4, "release_date": "2026-10-06", "weights_date": "2026-10-31"}
+];
+/* How each model looks in the story (not data, so not in models.csv): the short name used on the timeline and the cat's colors. */
+const STYLE={
+  'MiMo-V2.6-Pro':   {short:'MiMo',     fur:'#F4B63F', stripe:'#B97A12', belly:'#FFF1C9'},
+  'Kimi K3':         {short:'Kimi',     fur:'#5D6578', stripe:'#363C4A', belly:'#DDE0EA'},
+  'Qwen3.8':         {short:'Qwen',     fur:'#9B7BE0', stripe:'#6B4BB8', belly:'#E8DEFA'},
+  'DeepSeek-V4-Pro': {short:'DeepSeek', fur:'#5B8DEF', stripe:'#3A63CC', belly:'#DCE7FC'},
+  'Mistral Large 4': {short:'Mistral',  fur:'#F0903A', stripe:'#B8561B', belly:'#FFE2B8'},
+};
+const LAND=[2.0,3.3,4.6,5.9,7.2];          // landing slots, assigned in release-date order
+const tlabel=b=>`${+(b/1000).toFixed(2)}T`;
+const DATA=CSV.sort((a,b)=>a.release_date<b.release_date?-1:1).map((r,i)=>({
+  name:r.model, short:STYLE[r.model].short, vendor:r.vendor, fur:STYLE[r.model].fur, stripe:STYLE[r.model].stripe, belly:STYLE[r.model].belly,
+  total:+r.total_params_b, active:+r.active_params_b, ai:+r.intelligence_index, tl:tlabel(+r.total_params_b),
+  release:r.release_date, weights:r.weights_date||null, star:!!r.weights_date, land:LAND[i], bubbles:[]}));
+const K=LY.rxMax/Math.sqrt(Math.max(...DATA.map(d=>d.total)));   // body area ∝ total params (the biggest model is 280px wide)
+const BIG=DATA.reduce((a,b)=>b.total>a.total?b:a);
+DATA.forEach(d=>{ d.bubbles.push([d.tl,d.land+.8,d.land+2.1]); });
+BIG.bubbles.push(['Welcome, little chonk!',FIN,FIN+3.6]);
+const CAPTIONS=[
+  ['size = total params · smile = active params',2.2,8.4],
+];
+
+/* ---------- scene ---------- */
+const svg=document.getElementById('stage');
+svg.setAttribute('viewBox',LY.vb.join(' '));
+el('rect',{x:VBX-20,y:Y0,width:VBW+40,height:VBH-Y0,style:'fill:var(--floor)'},svg);
+el('line',{x1:VBX+89,x2:VBX+1689,y1:Y0,y2:Y0,style:'stroke:var(--line);stroke-width:3;opacity:.35'},svg);
+const world=el('g',{},svg);
+const back=el('g',{},world), catLayer=el('g',{},world), water=el('g',{},world), ui=el('g',{},world), fx=el('g',{},world);
+const wFill=el('path',{style:'fill:var(--water);opacity:.68'},water);
+const wLine=el('path',{style:'fill:none;stroke:var(--waterhi);stroke-width:4;stroke-linecap:round'},water);
+
+const FX0=-80, FX1=VBX+VBW+(PORTRAIT?80:11);      // the fish swims from just off the left edge to just off the right
+/* layout (same as the lineup) */
+let cursor=LY.x0;
+DATA.forEach(d=>{d.rx=K*Math.sqrt(d.total);d.ry=.82*d.rx;d.cx=cursor+d.rx;cursor=d.cx+d.rx*1.45+LY.gap;
+  d.tp=FISH0+(d.cx-FX0)/(FX1-FX0)*(CATCH-FISH0);});          // when the "token" fish passes this cat
+
+function makeCat(d,i){
+  const {rx,ry,cx}=d, cy=Y0-ry;
+  const root=el('g',{},catLayer); d.root=root;
+  root.style.setProperty('--fur',d.fur); root.style.setProperty('--stripe',d.stripe); root.style.setProperty('--belly',d.belly);
+  const fur='fill:var(--fur);stroke:var(--line);stroke-width:4;stroke-linejoin:round';
+  // tail
+  const tg=el('g',{},root); d.tail=tg; d.tailPivot=[cx+.85*rx,Y0-.3*ry];
+  const tail=`M${cx+.85*rx},${Y0-.3*ry} C${cx+1.5*rx},${Y0-.05*ry} ${cx+1.55*rx},${Y0-1.0*ry} ${cx+1.2*rx},${Y0-1.15*ry}`;
+  el('path',{d:tail,style:`fill:none;stroke:var(--line);stroke-width:${rx*.2};stroke-linecap:round`},tg);
+  el('path',{d:tail,style:`fill:none;stroke:var(--fur);stroke-width:${rx*.2-8};stroke-linecap:round`},tg);
+  // ears
+  for(const s of [-1,1]){
+    el('polygon',{points:`${cx+s*.78*rx},${cy-.62*ry} ${cx+s*.72*rx},${cy-1.5*ry} ${cx+s*.2*rx},${cy-.98*ry}`,style:fur},root);
+    el('polygon',{points:`${cx+s*.68*rx},${cy-.82*ry} ${cx+s*.66*rx},${cy-1.22*ry} ${cx+s*.38*rx},${cy-.97*ry}`,style:'fill:var(--ear)'},root);
+  }
+  // body + stripes
+  el('ellipse',{cx,cy,rx,ry,style:fur},root);
+  const cp=el('clipPath',{id:'bc'+i},root); el('ellipse',{cx,cy,rx,ry},cp);
+  const st=el('g',{'clip-path':`url(#bc${i})`,style:`fill:none;stroke:var(--stripe);stroke-width:${rx*.07};stroke-linecap:round`},root);
+  [-.22,0,.22].forEach(dx=>el('path',{d:`M${cx+dx*rx},${cy-1.05*ry} L${cx+dx*rx},${cy-(dx?.7:.8)*ry}`},st));
+  for(const s of [-1,1]) [-.15,.2,.55].forEach(t=>el('path',{d:`M${cx+s*rx*1.05},${cy+t*ry} Q${cx+s*rx*.8},${cy+(t+.02)*ry} ${cx+s*rx*.62},${cy+(t+.14)*ry}`},st));
+  // belly + heart (area ∝ active params)
+  el('ellipse',{cx,cy:cy+.5*ry,rx:.52*rx,ry:.42*ry,style:'fill:var(--belly);opacity:.92'},root);
+  // the red smile (the "heart"): an open grin, a half-disc under the nose, whose AREA is proportional to active params
+  const R=K*Math.sqrt(2*d.active), my0=cy+.15*ry;                  // half-disc area = pi*R^2/2 = pi*K^2*active
+  d.hx=cx; d.hy=my0+.42*R;                                          // pulse around the grin's centre of mass
+  d.heart=el('g',{},root);
+  el('path',{d:`M${cx-R},${my0} A${R},${R} 0 0 0 ${cx+R},${my0} Z`,style:'fill:var(--heart);stroke:var(--line);stroke-width:3;stroke-linejoin:round'},d.heart);
+  el('ellipse',{cx,cy:my0+.66*R,rx:.5*R,ry:.26*R,style:'fill:#F59AA0'},d.heart);                     // tongue
+  // face
+  const ey=cy-.2*ry, ex=.3*rx;
+  const eyesOpen=el('g',{},root); d.eyeEls=[]; d.glints=[];
+  for(const s of [-1,1]){
+    d.eyeEls.push(el('ellipse',{cx:cx+s*ex,cy:ey,rx:.055*rx,ry:.13*ry,style:'fill:var(--line)'},eyesOpen));
+    d.glints.push(el('circle',{cx:cx+s*ex-.02*rx,cy:ey-.05*ry,r:.028*rx,style:'fill:#fff',opacity:0},eyesOpen));
+    for(const dy of [-.05,.06,.17]) el('line',{x1:cx+s*.4*rx,y1:cy+.1*ry,x2:cx+s*.8*rx,y2:cy+(.1+dy)*ry,style:'stroke:var(--line);stroke-width:2;opacity:.55;stroke-linecap:round'},root);
+  }
+  el('polygon',{points:`${cx-.07*rx},${cy} ${cx+.07*rx},${cy} ${cx},${cy+.08*ry}`,style:'fill:var(--ear);stroke:var(--line);stroke-width:2;stroke-linejoin:round'},root);
+
+  // labels
+  const TS=LY.ts, off=LY.stag*(i%2);
+  const lab=(y,size,wt,cls)=>txt(ui,cx,y+off,'',{'text-anchor':'middle',style:`font-size:${size*TS}px;font-weight:${wt}`,class:cls||''});
+  d.l1=lab(Y0+44*TS,22,800); d.lvend=lab(Y0+66*TS,15,400); d.lvend.style.fill='var(--muted)'; d.lvend.textContent=d.vendor; d.vdot=el('circle',{cx:cx-d.lvend.getComputedTextLength()/2-12*TS,cy:Y0+off+61*TS,r:6*TS,style:`fill:${d.fur};stroke:var(--line);stroke-width:1.5`},ui); d.l2=lab(Y0+92*TS,18,400); d.l3=lab(Y0+114*TS,16,400); d.l3.style.fill='var(--muted)';
+  d.l4=lab(Y0+138*TS,17,800); d.l4.style.fontStyle='italic';
+  d.l2.textContent=''; d.l2a=el('tspan',{},d.l2); d.l2b=el('tspan',{style:'font-weight:400',opacity:0},d.l2);   // total, then the active count
+  d.l1.textContent=d.name; d.l4.textContent=PORTRAIT?'':'“Le Chonk”';        // (the nickname is left out of the narrow layout: it would collide with the label below)
+  if(off) d.lead=el('line',{x1:cx,x2:cx,y1:Y0+14,y2:Y0+off+20*TS,style:'stroke:var(--muted);stroke-width:2;stroke-dasharray:2 6;stroke-linecap:round',opacity:0},ui);   // ties the lower label to its perch
+  // speech bubbles
+  d.bub=d.bubbles.map(([s,a,b])=>{
+    const g=el('g',{opacity:0},ui), w=s.length*11.8+44, h=50;
+    el('polygon',{points:'-11,-24 11,-24 0,0',style:'fill:var(--paper);stroke:var(--line);stroke-width:3;stroke-linejoin:round'},g);
+    el('rect',{x:-w/2,y:-24-h,width:w,height:h,rx:25,style:'fill:var(--paper);stroke:var(--line);stroke-width:3'},g);
+    el('rect',{x:-9,y:-27,width:18,height:6,style:'fill:var(--paper)'},g);
+    txt(g,0,-24-h/2+8,s,{'text-anchor':'middle',style:'font-size:22px;font-weight:800'});
+    return {g,a,b};
+  });
+  // splash pieces: droplet count, launch height and ripples all scale with weight (total params)
+  d.drops=[...Array(Math.round(d.total/40))].map(()=>el('circle',{r:5,style:'fill:var(--water);stroke:var(--waterhi);stroke-width:1.5',opacity:0},fx));
+  d.rings=[0,1,2].map(()=>el('ellipse',{style:'fill:none;stroke:var(--waterhi);stroke-width:4',opacity:0},fx));
+}
+DATA.forEach(makeCat);
+const Mistral=DATA.find(d=>d.star);
+
+/* ---------- perches: post height = Intelligence Index (act 3) ---------- */
+const PXA=LY.pxa;                                // px per Intelligence Index point (perch height)
+const defs=el('defs',{},svg);
+const sis=el('pattern',{id:'sisal',patternUnits:'userSpaceOnUse',width:16,height:12},defs);
+el('rect',{width:16,height:12,style:'fill:#DCC091'},sis);
+el('path',{d:'M0 3 Q4 0 8 3 T16 3 M0 9 Q4 6 8 9 T16 9',style:'fill:none;stroke:#B8985F;stroke-width:2'},sis);
+const gridG=el('g',{opacity:0},back);
+[10,20,30,40].forEach(v=>{const y=Y0-v*PXA;
+  el('line',{x1:VBX+9,x2:VBX+1769,y1:y,y2:y,style:'stroke:var(--muted);stroke-width:2;stroke-dasharray:3 9;stroke-linecap:round;opacity:.5'},gridG);
+  txt(gridG,LY.axisX,y-7,v,{style:`font-size:${15*LY.ts}px;font-weight:400;fill:var(--muted)`});});
+// y-axis title, rotated, centred on the 10-40 span of the scale
+{ const ay=Y0-25*PXA; txt(gridG,LY.axisT,ay,'AA intelligence v4.3.2',{'text-anchor':'middle',style:`font-size:${15*LY.ts}px;font-weight:400;fill:var(--muted)`,transform:`rotate(-90 ${LY.axisT} ${ay})`}); }
+DATA.forEach((d,i)=>{
+  d.h=d.ai*PXA;                                    // perch height = Intelligence Index
+  const W=2*d.rx*1.08;
+  d.pTrunk=el('rect',{x:d.cx-W*.17,width:W*.34,style:'fill:url(#sisal);stroke:var(--line);stroke-width:3',opacity:0},back);
+  d.pPlat=el('rect',{x:d.cx-W/2,width:W,height:24,rx:11,style:'fill:#5F9E86;stroke:var(--line);stroke-width:3',opacity:0},back);
+  d.pBadge=el('g',{opacity:0},back);
+  el('circle',{r:25,style:'fill:var(--paper);stroke:var(--line);stroke-width:3'},d.pBadge);
+  d.pNum=txt(d.pBadge,0,8,'0',{'text-anchor':'middle',style:'font-size:24px;font-weight:800'});
+});
+
+/* ---------- last act: a fish swims along under the waterline; the cats get excited as it passes ---------- */
+function fishState(t){
+  const u=seg(t,FISH0,CATCH);
+  return {x:lerp(FX0,FX1,u), y:Y0+17+3*Math.sin(u*44), u, ang:9*Math.cos(u*44), vis:t>FISH0-.1&&t<CATCH+.05};
+}
+
+/* ---------- release timeline (bottom strip): one marker per model, filled in as each cat lands ---------- */
+const TL_X0=LY.tl.x0, TL_X1=LY.tl.x1, TL_Y=LY.tl.y;
+const dayN=iso=>{const [y,m,d]=iso.split('-').map(Number);return Date.UTC(y,m-1,d)/864e5};
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const dlabel=iso=>{const [y,m,d]=iso.split('-').map(Number);return `${MON[m-1]} ${d}`};
+const allDates=DATA.flatMap(d=>[d.release,d.weights]).filter(Boolean).sort();
+const [y0,m0]=allDates[0].split('-').map(Number), [y1,m1]=allDates[allDates.length-1].split('-').map(Number);
+const iso1=(y,m)=>`${y+Math.floor((m-1)/12)}-${String(((m-1)%12)+1).padStart(2,'0')}-01`;
+const lastTick=iso1(y1,m1+1);                                           // first of the month after the last date
+const D0=dayN(iso1(y0,m0)), D1=dayN(lastTick)+6;
+const tx=iso=>TL_X0+(dayN(iso)-D0)/(D1-D0)*(TL_X1-TL_X0);
+DATA.forEach(d=>d.anc='middle');
+DATA.forEach((d,k)=>{ const n=DATA[k+1];                 // two releases a few days apart: labels go on opposite sides
+  if(n&&dayN(n.release)-dayN(d.release)<4){d.anc='end';n.anc='start'} });
+const WX=tx(Mistral.weights);
+const tl=el('g',{opacity:0},svg);
+el('rect',{x:LY.tl.rect[0],y:LY.tl.rect[1],width:LY.tl.rect[2],height:LY.tl.rect[3],rx:16,style:'fill:var(--paper);opacity:.6'},tl);
+el('line',{x1:TL_X0,x2:TL_X1,y1:TL_Y,y2:TL_Y,style:'stroke:var(--muted);stroke-width:4;stroke-linecap:round;opacity:.45'},tl);
+Array.from({length:(y1*12+m1+1)-(y0*12+m0)+1},(_,k)=>{const m=m0+k, iso=iso1(y0,m); return [k===0?`${MON[(m-1)%12]} ${y0}`:MON[(m-1)%12], iso]}).forEach(([lab,iso])=>{
+  const x=tx(iso); el('line',{x1:x,x2:x,y1:TL_Y-7,y2:TL_Y+7,style:'stroke:var(--muted);stroke-width:2'},tl);
+  txt(tl,x+5,TL_Y+31,lab,{style:`font-size:${PORTRAIT?16:14}px;font-weight:400;fill:var(--muted)`});
+});
+const tlLabel=(x,anc,l1,l2)=>{ const g=el('g',{opacity:0},tl);       // landscape: one line "Name · date"; vertical: two lines (name over date) so neighbours fit
+  if(PORTRAIT){ txt(g,x,TL_Y-50,l1,{'text-anchor':anc,style:'font-size:18px;font-weight:700'}); txt(g,x,TL_Y-27,l2,{'text-anchor':anc,style:'font-size:18px;font-weight:400'}) }
+  else txt(g,x,TL_Y-22,`${l1} · ${l2}`,{'text-anchor':anc,style:'font-size:15px;font-weight:400'});
+  return g };
+const tlProg=el('line',{x1:TL_X0,y1:TL_Y,x2:TL_X0,y2:TL_Y,style:'stroke:var(--line);stroke-width:5;stroke-linecap:round'},tl);
+const tlWDash=el('line',{y1:TL_Y,y2:TL_Y,opacity:0,style:`stroke:${Mistral.fur};stroke-width:5;stroke-dasharray:3 9;stroke-linecap:round`},tl);
+DATA.forEach(d=>{
+  const anc=d.anc; d.tlx=tx(d.release);
+  d.tm=el('g',{},tl); el('circle',{r:10,style:`fill:${d.fur};stroke:var(--line);stroke-width:3`},d.tm);
+  d.tlab=tlLabel(d.tlx+(anc==='end'?-8:anc==='start'?8:0),anc,`${d.short}${d.star?' API':''}`,dlabel(d.release));
+});
+const tlW=el('g',{opacity:0},tl); el('circle',{r:10,style:`fill:var(--paper);stroke:${Mistral.fur};stroke-width:4;stroke-dasharray:4 3`},tlW);
+const tlWl=tlLabel(WX,'middle','weights',dlabel(Mistral.weights));
+function renderTL(t){
+  tl.setAttribute('opacity',seg(t,.5,1.1));
+  let hx=TL_X0;                                         // the filled line crawls from one release date to the next
+  for(let k=0;k<DATA.length;k++){
+    const d=DATA[k], pT=k?DATA[k-1].land+.25:DATA[0].land-1.1, pX=k?DATA[k-1].tlx:TL_X0;
+    if(t>=d.land){hx=d.tlx;continue}
+    hx=lerp(pX,d.tlx,eIO(seg(t,pT,d.land))); break;
+  }
+  tlProg.setAttribute('x2',hx);
+  DATA.forEach(d=>{
+    d.tm.setAttribute('transform',`translate(${d.tlx},${TL_Y}) scale(${Math.max(.01,eOB(seg(t,d.land,d.land+.35)))})`);
+    d.tlab.setAttribute('opacity',seg(t,d.land+.1,d.land+.5));
+  });
+  const l=Mistral.land, wd=seg(t,l+1.0,l+1.8);          // API date -> expected open-weights date
+  tlWDash.setAttribute('x1',Mistral.tlx); tlWDash.setAttribute('x2',lerp(Mistral.tlx,WX,eOC(wd))); tlWDash.setAttribute('opacity',wd>0?1:0);
+  tlW.setAttribute('transform',`translate(${WX},${TL_Y}) scale(${Math.max(.01,eOB(seg(t,l+1.7,l+2.1)))})`);
+  tlW.setAttribute('opacity',seg(t,l+1.7,l+1.8)); tlWl.setAttribute('opacity',seg(t,l+1.9,l+2.3));
+}
+
+/* fish "token" */
+const fish=el('g',{opacity:0},fx);
+const wake=el('ellipse',{cy:Y0+2,rx:30,ry:4,style:'fill:none;stroke:var(--waterhi);stroke-width:3',opacity:0},fx);
+el('ellipse',{rx:28,ry:13,style:'fill:var(--fish);stroke:var(--line);stroke-width:3'},fish);
+el('polygon',{points:'-24,0 -46,-14 -46,14',style:'fill:var(--fish);stroke:var(--line);stroke-width:3;stroke-linejoin:round'},fish);
+el('circle',{cx:14,cy:-3,r:3,style:'fill:var(--line)'},fish);
+
+
+/* sparkles + confetti */
+const CONF=[...Array(70)].map((_,k)=>({e:el('rect',{width:14,height:8,rx:2,style:`fill:${['var(--fur)','var(--amber)','var(--heart)','var(--fish)'][k%4]}`},fx),k}));
+
+/* title + captions (outside the shaking world) */
+const title=txt(svg,LY.cx,LY.title.y0,'Le Chonk-Off',{'text-anchor':'middle',style:`font-weight:900;font-size:${LY.title.s0}px`});
+const sub=txt(svg,LY.cx,LY.title.y0+LY.title.sub,'Recent 1T+ open models',{'text-anchor':'middle',style:`font-size:${LY.title.ss}px;font-weight:600;fill:var(--muted)`});
+const tagline=txt(svg,LY.cx,LY.tag.y,'Recent 1T+ open models',{'text-anchor':'middle',style:`font-size:${LY.tag.s}px;font-weight:700;fill:var(--muted)`,opacity:0});   // subtitle on the final scene
+const credit=txt(svg,LY.cx,LY.credit.y,'Created by sujee.dev',{'text-anchor':'middle',style:`font-size:${LY.credit.s}px;font-weight:400;fill:#fff`,opacity:0});   // small credit on the final scene (brief.md)
+const caps=CAPTIONS.map(([s])=>txt(svg,LY.cx,LY.cap.y,s,{'text-anchor':'middle',style:`font-size:${LY.cap.s}px;font-weight:700`,opacity:0}));
+
+/* ---------- the timeline ---------- */
+function render(t){
+  // camera shake when Kimi thuds down
+  let sx0=0,sy0=0;                                    // every landing shakes the camera, heavier = harder
+  DATA.forEach(d=>{if(d.land==null)return;const sd=t-d.land;
+    if(sd>0&&sd<.7){const a=16*Math.pow(d.total/2800,1.6)*Math.exp(-sd*7);sx0+=a*Math.sin(sd*60);sy0+=a*Math.cos(sd*45)}});
+  world.setAttribute('transform',`translate(${sx0},${sy0})`);
+  renderTL(t);
+  credit.setAttribute('opacity',.85*seg(t,CREDIT0,CREDIT0+.8)); tagline.setAttribute('opacity',seg(t,CREDIT0,CREDIT0+.8));
+  const FS=fishState(t);
+  gridG.setAttribute('opacity',PORTRAIT?seg(t,1.7,2.4):seg(t,1.0,1.8));      // the intelligence scale is there from the start
+
+  // title
+  const m=eIO(seg(t,1.3,2.1));
+  title.setAttribute('y',lerp(LY.title.y0,LY.title.y1,m)); title.style.fontSize=lerp(LY.title.s0,LY.title.s1,m)+'px';
+  sub.setAttribute('opacity',1-seg(t,.9,1.5));
+  caps.forEach((c,i)=>{const [,a,b]=CAPTIONS[i];c.setAttribute('opacity',seg(t,a,a+.4)*(1-seg(t,b-.4,b)))});
+
+  DATA.forEach((d,i)=>{
+    const {cx,ry,rx}=d, cy=Y0-ry;
+    let ty=-d.h,sx=1,sy=1,vis=1;                          // at rest, the cat sits on its perch
+    if(d.land!=null){
+      const fall=.55;
+      if(t<d.land-fall) vis=0;
+      else if(t<d.land){const p=(t-(d.land-fall))/fall;ty=-d.h-(Y0+500)*(1-p*p);sx=.92;sy=1.1}
+      else{const dt=t-d.land,s=.3*Math.exp(-dt*6)*Math.cos(dt*20);sy=1-s;sx=1+s*.7}
+    }
+    // the perch rises while the cat falls; its post height is the Intelligence Index (the badge counts up to it)
+    const pp=d.h*eIO(seg(t,d.land-.85,d.land-.2)), pv=pp>20?1:0;
+    d.pTrunk.setAttribute('y',Y0-pp+18); d.pTrunk.setAttribute('height',Math.max(0,pp-14)); d.pPlat.setAttribute('y',Y0-pp);   // trunk ends just under the waterline
+    d.pTrunk.setAttribute('opacity',pv); d.pPlat.setAttribute('opacity',pv);
+    d.pBadge.setAttribute('transform',`translate(${cx},${Y0-pp+58}) scale(${Math.max(.01,eOB(seg(t,d.land-.8,d.land-.45)))*LY.bs})`);
+    d.pBadge.setAttribute('opacity',pv); d.pNum.textContent=Math.round(d.ai*pp/d.h);
+    // breathing
+    sy*=1+.012*Math.sin(t*3+i);
+    // cheering hops
+    let hop=0;
+    // finale: 4 parabolic hops per cat (a small wave from left to right), every cat lands before T_END
+    const HD=.48, tau=t-(FIN+.12*i);
+    if(tau>0&&tau<4*HD){const u=(tau/HD)%1; hop=46*4*u*(1-u); sy*=1-.1*Math.max(0,1-Math.min(u,1-u)/.08)}
+    ty-=hop;
+    // excited cats: eyes go wide (sparkle) and they bounce a little while the fish is underneath
+    const o=FS.vis?eIO(clamp(1-Math.abs(FS.x-cx)/(260*SC))):0;          // excitement: peaks as the fish swims under this cat
+    ty-=16*o;
+    d.eyeEls.forEach(e=>{e.setAttribute('rx',.055*rx*(1+.75*o)); e.setAttribute('ry',.13*ry*(1+.6*o))});
+    d.glints.forEach(g=>{g.setAttribute('opacity',o>.15?1:0); g.setAttribute('r',.028*rx*(1+.5*o))});
+    d.root.setAttribute('transform',`translate(0,${ty}) translate(${cx},${Y0}) scale(${sx},${sy}) translate(${-cx},${-Y0})`);
+    d.root.setAttribute('opacity',vis);
+
+    // tail wag
+    const wag=Math.sin(t*5+i)*14;
+    d.tail.setAttribute('transform',`rotate(${wag} ${d.tailPivot[0]} ${d.tailPivot[1]})`);
+
+    const bt=(t-d.tp+.1)/.55, bp=((bt%1)+1)%1;                       // lub-dub every 0.55s, ~2 beats
+    const pulse=(bt>0&&bt<2.4)?Math.exp(-Math.pow(bp/.1,2))+.7*Math.exp(-Math.pow((bp-.32)/.1,2)):0;
+    const beat=1+.04*Math.sin(t*4+i)+.6*pulse;
+    d.heart.setAttribute('transform',`translate(${d.hx},${d.hy}) scale(${beat}) translate(${-d.hx},${-d.hy})`);
+
+    // labels
+    const lv=seg(t,d.land,d.land+.3);
+    d.l1.setAttribute('opacity',lv); d.lvend.setAttribute('opacity',lv); d.vdot.setAttribute('opacity',lv); if(d.lead) d.lead.setAttribute('opacity',.6*lv);
+    const t0=d.land+.15, u=eOC(seg(t,t0,t0+1.1));
+    d.l2a.textContent=tlabel(d.total*u);                               // the total counts up as the cat lands (same format as the final label)
+    const showA=seg(t,d.land+1.2,d.land+1.7), rd=eIO(seg(t,d.tp-.1,d.tp+.35)), pk=bump(t,d.tp,.1,1.0);   // active count: shown from the drop in the normal text color; when the fish passes it turns red with a pop
+    d.l2b.textContent=` (${d.active}B - ${Math.round(100*d.active/d.total)}%)`;
+    d.l2b.setAttribute('opacity',showA);
+    d.l2b.style.fill=`color-mix(in srgb, var(--heart) ${Math.round(100*rd)}%, var(--ink))`;
+    d.l2b.style.fontSize=(18*LY.ts*(1+.4*pk))+'px'; d.l2b.style.fontWeight=rd>.5?700:400;
+    d.l2.setAttribute('opacity',seg(t,t0,t0+.3));
+    d.l4.setAttribute('opacity',d.star?seg(t,d.land+.5,d.land+1.1):0);
+
+    // bubbles (tip sits above the ears)
+    d.bub.forEach(b=>{
+      const pin=seg(t,b.a,b.a+.25),pout=seg(t,b.b-.25,b.b),s=eOB(pin)*(1-pout);
+      b.g.setAttribute('opacity',pin*(1-pout));
+      b.g.setAttribute('transform',`translate(${cx},${Y0-ry*2.5-8+ty}) scale(${Math.max(.01,s)*LY.bs})`);
+    });
+    // splash: droplets, height and ripples all scale with weight
+    const dt=t-d.land, v0=17.3*Math.sqrt(d.total);
+    d.drops.forEach((c,k)=>{
+      const r1=((k*7919)%1000)/1000, r2=((k*104729)%997)/997, r3=((k*15485863)%991)/991;
+      const side=r1*2-1, x=cx+side*rx+side*(110+250*r2)*dt*SC, y=Y0+SINK*.4-SC*(v0*(.3+.7*r3)*dt-.5*G*dt*dt);
+      const on=dt>0&&dt<4&&y<=Y0+2;
+      c.setAttribute('cx',x); c.setAttribute('cy',y); c.setAttribute('r',(3.5+5*r2)*(.7+.6*d.total/2800));
+      c.setAttribute('opacity',on?1:0);
+    });
+    d.rings.forEach((r,k)=>{
+      const u=(dt-.05-k*.22)/1.3, rr=rx*(.9+1.6*u);
+      r.setAttribute('cx',cx); r.setAttribute('cy',Y0+SINK*.5); r.setAttribute('rx',rr); r.setAttribute('ry',rr*.1);
+      r.setAttribute('opacity',u>0&&u<1?(1-u)*.9:0);
+    });
+  });
+
+  // pool surface: gentle chop + a ripple train from every landing (amplitude ∝ weight)
+  let top='',tail='';
+  for(let x=VBX-7;x<=VBX+VBW+7;x+=16){
+    let y=Y0+2.5*Math.sin(x*.018+t*1.6);
+    DATA.forEach(d=>{if(d.land==null)return;const dt=t-d.land;
+      if(dt>0&&dt<3.5){const dist=Math.abs(x-d.cx);
+        if(dist<dt*650*SC) y+=24*(d.total/2800)*Math.exp(-dt*1.5)*Math.exp(-dist/(280*SC))*Math.sin(dist*.05/SC-dt*11)}});
+    top+=(x>VBX-7?'L':'M')+x+','+y.toFixed(1);
+  }
+  wLine.setAttribute('d',top); wFill.setAttribute('d',top+`L${VBX+VBW+7},${VBH}L${VBX-7},${VBH}Z`);
+
+  // the fish (last act): swims left to right just under the surface
+  fish.setAttribute('opacity',FS.vis?1:0);
+  fish.setAttribute('transform',`translate(${FS.x},${FS.y}) rotate(${FS.ang}) scale(${1.05*LY.bs})`);
+  wake.setAttribute('cx',FS.x-46); wake.setAttribute('opacity',FS.vis?.8:0);   // little ripple on the surface behind it
+
+  // confetti finale
+  CONF.forEach(({e,k})=>{
+    const dt=t-FIN, on=dt>0;
+    const x=((k*137.5)%VBW)+VBX+30*Math.sin(dt*2+k), y=-30-((k*91)%(PORTRAIT?900:450))+dt*(150+(k*53)%170)*(PORTRAIT?1.6:1);
+    e.setAttribute('transform',`translate(${x},${y}) rotate(${dt*140+k*40})`);
+    e.setAttribute('opacity',on&&y<VBH&&!STILL?1:0);
+  });
+
+  if(THUMB&&THUMBS[THUMB]){            // thumbnail: hide everything small, set big type at the top and in the water
+    [tl,gridG,credit,tagline,...caps,...DATA.flatMap(d=>[d.l1,d.lvend,d.vdot,d.l2,d.l3,d.l4,d.lead].filter(Boolean))].forEach(e=>e.setAttribute('opacity',0));
+    const [top,bot]=THUMBS[THUMB], P=PORTRAIT;
+    title.textContent=top; title.setAttribute('y',P?330:215); title.style.fontSize=(P?(top.length>13?112:140):(top.length>13?150:170))+'px';
+    sub.textContent=bot; sub.setAttribute('opacity',1); sub.setAttribute('y',P?1320:880);
+    sub.style.fontSize=(P?(bot.length>16?84:130):(bot.length>16?112:120))+'px'; sub.style.fontWeight=900; sub.style.fill='#fff'; sub.style.stroke='var(--line)'; sub.style.strokeWidth='10px'; sub.style.paintOrder='stroke'; sub.style.strokeLinejoin='round';
+    for(const e of [title,sub]){ const w=e.getComputedTextLength(), max=VBW*.88; if(w>max) e.style.fontSize=(parseFloat(e.style.fontSize)*max/w)+'px' }   // fit the type inside the frame, with margins
+  }
+}
+
+/* ---------- player ---------- */
+const playBtn=document.getElementById('play'),replay=document.getElementById('replay'),scrub=document.getElementById('scrub'),timeEl=document.getElementById('time'),
+  muteBtn=document.getElementById('mute'),noteEl=document.getElementById('note');
+scrub.max=T_END;
+let tcur=0,last=null,playing=true;
+
+/* Sound: the quiet piano that `npm run music` generates (workspace/tmp/music_16x9.wav), kept in step with the animation.
+   While it plays it is the clock, so picture and sound cannot drift apart. */
+const aud=new Audio(); let audioOK=false;
+if(!CAPTURE){
+  aud.preload='auto'; aud.src='../workspace/tmp/music_16x9.wav';
+  aud.addEventListener('loadedmetadata',()=>{ audioOK=true; muteBtn.hidden=false;
+    noteEl.textContent=Math.abs(aud.duration-T_END)>.25?'· music is out of date: run npm run music':''; audioSync() });
+  aud.addEventListener('error',()=>{ audioOK=false; noteEl.textContent='· no sound yet: run npm run music' });
+}
+function audioSync(){
+  if(!audioOK) return;
+  if(playing&&aud.paused){ aud.currentTime=Math.min(tcur,Math.max(0,aud.duration-.02));
+    aud.play().then(()=>{ if(!noteEl.textContent.includes('out of date')) noteEl.textContent='' }).catch(()=>{ noteEl.textContent='· click the page for sound' }) }
+  else if(!playing&&!aud.paused) aud.pause();
+}
+const setPlaying=p=>{playing=p;playBtn.textContent=p?'⏸':'▶';audioSync()};
+function loop(now){
+  if(last==null)last=now; const dt=Math.min(.1,(now-last)/1000); last=now;
+  if(playing){
+    if(audioOK&&!aud.paused&&aud.readyState>=2) tcur=Math.min(T_END,aud.currentTime);   // the music is the clock
+    else tcur=Math.min(T_END,tcur+dt);
+    if(tcur>=T_END||aud.ended){tcur=T_END;setPlaying(false)}
+  }
+  render(tcur); scrub.value=tcur; timeEl.textContent=`${tcur.toFixed(1)} / ${T_END} s`;
+  requestAnimationFrame(loop);
+}
+playBtn.onclick=()=>{if(tcur>=T_END){tcur=0;if(audioOK)aud.currentTime=0}setPlaying(!playing)};
+replay.onclick=()=>{tcur=0;if(audioOK)aud.currentTime=0;setPlaying(true)};
+scrub.oninput=()=>{tcur=+scrub.value;if(audioOK)aud.currentTime=Math.min(tcur,Math.max(0,aud.duration-.02))};
+muteBtn.onclick=()=>{aud.muted=!aud.muted;muteBtn.textContent=aud.muted?'🔇':'🔊'};
+document.addEventListener('click',e=>{ if(!e.target.closest('#bar')&&playing&&audioOK&&aud.paused) audioSync() });   // browsers need a click before sound can start
+const h=location.hash.match(/t=([\d.]+)/);
+if(h){tcur=+h[1];setPlaying(false);render(tcur)}
+if(!CAPTURE) requestAnimationFrame(loop);
+window.seek=t=>{tcur=t;render(t)};
+window.DURATION=T_END;                                   // read by src/capture.mjs
+window.__ready=true;
+</script>
+</body>
+</html>
