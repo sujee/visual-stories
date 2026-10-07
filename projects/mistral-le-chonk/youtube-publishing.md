@@ -9,9 +9,9 @@ Publish the full video first, because the Short links to it.
 ### Upload steps
 
 1. In YouTube Studio, choose **Create → Upload videos** and pick
-   `workspace/export/le-chonk-off-<version>-16x9-4k.mp4` (the version with the quiet piano).
+   `workspace/export/mistral-le-chonk-<version>-16x9-4k.mp4` (the version with the quiet piano).
 2. Paste the **Title** and **Description** below.
-3. **Thumbnail:** `thumbnails/le-chonk-off-thumbnail-question-16x9.png` (the hook design). The other design, `…-lineup-16x9.png`,
+3. **Thumbnail:** `thumbnails/mistral-le-chonk-thumbnail-question-16x9.png` (the hook design). The other design, `…-lineup-16x9.png`,
    is a good one to A/B test against it.
 4. **Audience:** No, it's not made for kids.
 5. **Show more:** License **Creative Commons – Attribution**; Category **Science & Technology**;
@@ -42,7 +42,7 @@ Cat size is total parameters. The red smile is how much of the model is active a
 Short version (0:15): <insert link to the Short>
 
 Data: Artificial Analysis Intelligence Index v4.3.2, model release dates and parameter counts as of early October 2026.
-Source, brief and how to reproduce or remix it: https://github.com/sujee/visual-stories/tree/main/projects/le-chonk-off
+Source, brief and how to reproduce or remix it: https://github.com/sujee/visual-stories/tree/main/projects/mistral-le-chonk
 
 Created by https://sujee.dev
 
@@ -65,12 +65,12 @@ open source AI, open weights, LLM, large language models, Kimi K3, Qwen3.8, Deep
 
 ### Upload steps
 
-1. Upload `workspace/export/le-chonk-off-<version>-9x16-4k.mp4`. It's vertical and under 3 minutes, so YouTube
+1. Upload `workspace/export/mistral-le-chonk-<version>-9x16-4k.mp4`. It's vertical and under 3 minutes, so YouTube
    treats it as a Short.
 2. Paste the **Title** and **Description** below, with the full video's URL in place of `<insert link to the full video>`.
 3. **Related video:** set it to the full video, so viewers can tap through from the Short; links typed into a Short's
    description aren't clickable.
-4. **Thumbnail:** if your YouTube app offers a custom Short thumbnail, use `thumbnails/le-chonk-off-thumbnail-question-9x16.png`;
+4. **Thumbnail:** if your YouTube app offers a custom Short thumbnail, use `thumbnails/mistral-le-chonk-thumbnail-question-9x16.png`;
    otherwise pick a cover frame from the final scene.
 5. Same audience, license, category and tags as the full video. Publish.
 
@@ -101,5 +101,5 @@ Full video: <insert link to the full video>
 
 - `README.md`: replace "coming soon" with the video and Short links.
 - Root `README.md`: add or update the row in the Stories table.
-- A GitHub release `le-chonk-off-v1` with the four 4K masters (`…-16x9-4k.mp4`, `…-16x9-4k-silent.mp4`, `…-9x16-4k.mp4`, `…-9x16-4k-silent.mp4`; see "GitHub Release" in `AGENTS.md`), linked from both READMEs.
+- A GitHub release `mistral-le-chonk-v1` with the four 4K masters (`…-16x9-4k.mp4`, `…-16x9-4k-silent.mp4`, `…-9x16-4k.mp4`, `…-9x16-4k-silent.mp4`; see "GitHub Release" in `AGENTS.md`), linked from both READMEs.
 - The files in `workspace/export/` are not committed. A final render puts its deliverables there automatically (hard links, same names).

@@ -48,7 +48,7 @@ All the videos are in one [YouTube playlist](https://www.youtube.com/playlist?li
 
 | Published | Story | What it's about | Watch |
 |---|---|---|---|
-| 2026-10-06 | [le-chonk-off](projects/le-chonk-off/) | Recent 1T+ open models as cats: size and smarts | [Video](https://youtu.be/Ez7uIjdLnRQ) · [Short](https://youtube.com/shorts/-ioImu61b1s) · [release](https://github.com/sujee/visual-stories/releases/tag/le-chonk-off-v1) |
+| 2026-10-06 | [mistral-le-chonk](projects/mistral-le-chonk/) | Recent 1T+ open models as cats: size and smarts | [Video](https://youtu.be/Ez7uIjdLnRQ) · [Short](https://youtube.com/shorts/-ioImu61b1s) · [release](https://github.com/sujee/visual-stories/releases/tag/mistral-le-chonk-v1) |
 | 2026-10-05 | [linux-history](projects/linux-history/) | Linux at 35. from "just a hobby" post to running the cloud, phones and Mars | [Video](https://youtu.be/lkOxEeqwMBo) · [Short](https://youtube.com/shorts/fmgBYJmWyXs) · [release](https://github.com/sujee/visual-stories/releases/tag/linux-history-v1) |
 | 2026-10-03 | [jev-vs-llm](projects/jev-vs-llm/) | Jev, TypeSafe AI's "System One" model, vs. a chat LLM | [Video](https://youtu.be/RQ6f6z-dPWA) · [Short](https://youtube.com/shorts/Iv2K_rx5Jso) · [release](https://github.com/sujee/visual-stories/releases/tag/jev-vs-llm-v1) |
 | 2026-09-27 | [neural-network-training](projects/neural-network-training/) | How a neural network learns  | [Video](https://youtu.be/BJC3FuMHRvs) · [Short](https://youtube.com/shorts/0fBcojHo-SI) · [release](https://github.com/sujee/visual-stories/releases/tag/neural-network-training-v1) |

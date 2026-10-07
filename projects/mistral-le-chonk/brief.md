@@ -34,7 +34,7 @@ Two videos, 30 fps, each under 20 seconds:
 The 1080p copies are for posting directly on social media (X, LinkedIn, Bluesky).
 
 Also, for each format:
-- **A clean still** of the final scene, without confetti, as a PNG at the 4K size, for screenshots. A final render also copies it, without the version in its name, to `thumbnails/le-chonk-off-still-<16x9|9x16>.png`.
+- **A clean still** of the final scene, without confetti, as a PNG at the 4K size, for screenshots. A final render also copies it, without the version in its name, to `thumbnails/mistral-le-chonk-still-<16x9|9x16>.png`.
 - **YouTube thumbnails**, two designs ("lineup" with the title, and "question" with a hook): 1280×720 for 16:9 and 1080×1920 for 9:16, each under 2 MB, in `thumbnails/`.
 
 A YouTube publishing guide (`youtube-publishing.md`, written by the agent once a version is approved, then yours to edit): upload steps, a title and description for each video, a pinned comment and tags. It has no chapters, because the videos are too short for YouTube chapters.
