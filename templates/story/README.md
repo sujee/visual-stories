@@ -15,7 +15,7 @@ Working with a coding agent? The house rules are in [AGENTS.md](../../AGENTS.md)
 ## Run it yourself
 
 ```bash
-./render.sh            # → workspace/preview/<timestamp>/  (<what the final deliverables are>; and rewrites thumbnails/ and the chapter timestamps in youtube-publishing.md, if there are any)
+./render.sh            # → workspace/preview/<timestamp>/, and copied to workspace/export/  (<what the final deliverables are>; and rewrites thumbnails/ and the chapter timestamps in youtube-publishing.md, if there are any)
 ./render.sh draft      # <what a draft produces>  → workspace/preview/<timestamp>/
 ./render.sh draft v2   # same, named version      → workspace/preview/v2/
 ./render.sh final v2   # everything, final quality → workspace/preview/v2/

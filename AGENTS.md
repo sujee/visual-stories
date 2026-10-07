@@ -58,6 +58,7 @@ Plain `./render.sh` must render every deliverable at final quality — reproduci
 - `quality`: draft or final (default). A draft is fast and may render only the main format.
 - `version`: the preview directory, `workspace/preview/<version>/`. Use `v1`, `v2`, … for review iterations; when omitted, use a `YYYY-MM-DD_HHMMSS` timestamp.
 - After each render, point `workspace/preview/latest` at the new directory.
+- **A final render exports its deliverables:** once it succeeds, `render.sh` puts every file it wrote to `workspace/preview/<version>/` into `workspace/export/` (same names; hard links, or copies where hard links aren't possible). A draft never exports. See Workspace and Output.
 - Run at low CPU priority so the computer stays usable during long renders: `render.sh` starts with `renice -n "${NICE:-10}" -p $$` (every job it starts inherits it), and `NICE=0 ./render.sh …` restores full priority. Keep this line when writing a new `render.sh`.
 - Document the accepted quality values in `README.md`.
 - **Ask before rendering when quality is ambiguous.** A final render takes a long time (4K, every format). If a request like "render it", "produce the video" or "run it" doesn't say draft or final, ask which one before starting. Don't ask when it's explicit ("final render", "draft v3", `./render.sh draft v5`).
@@ -94,12 +95,12 @@ workspace/                   ← git-ignored; nothing in it is needed to reprodu
 │   ├── 2026-09-26_145210/   ← timestamped, from a plain ./render.sh
 │   ├── latest -> …          ← always the newest render
 │   └── NOTES.md             ← local work log: what changed in each version
-├── export/                  ← approved masters, only on explicit request
+├── export/                  ← deliverables of final renders, written by `render.sh final`
 └── tmp/                     ← build intermediates, frame grabs, logs, scratch
 ```
 
 - Every render, draft or final, goes to `workspace/preview/<version>/`.
-- Write to `export/` only when explicitly asked to export an approved version. Exporting never re-renders or renames: hard-link the files from `preview/<version>/` (copy only if hard links aren't possible).
+- `export/` is where the deliverables of final renders end up, ready to upload or attach to a release. `render.sh` fills it as the last step of every final render: it hard-links the files from `preview/<version>/` (copy only if hard links aren't possible), with the same names. Exporting never re-renders or renames, and drafts never export. A later final render of the same version overwrites its files; different versions sit side by side, because the version is in the file name.
 - Scratch files go in `workspace/tmp/` — never the system `/tmp`, the repo root, or elsewhere in the project. Outside `workspace/`, only make deliberate changes to sources and docs.
 
 File names carry everything needed to identify a file once it's copied or shared:
@@ -155,7 +156,7 @@ A story is done when it communicates the goals of `brief.md`, the user has appro
 
 The 4K masters aren't committed; they're attached to a GitHub release, one per published version of a story. Publishing is outward-facing: create or edit a release only when the human asks, and confirm the title and files first.
 
-1. **Prerequisites:** the story is approved, committed and pushed (the release tags that commit), and the final render the human approved is in `workspace/preview/<version>/`.
+1. **Prerequisites:** the story is approved, committed and pushed (the release tags that commit), and the final render the human approved is in `workspace/export/` (and `workspace/preview/<version>/`).
 2. **Tag and title:** the tag is `<story>-v<N>`, numbered by published version (`v1` for the first release, `v2` if the story is re-published after changes), independent of the preview version. The title is the story's title.
 3. **Assets:** the four 4K masters, names unchanged: `<story>-<version>-{16x9,9x16}-4k.mp4` and `…-4k-silent.mp4`. Each file must be under 2 GiB (GitHub's limit); if one isn't, ask the human before re-encoding anything.
 4. **Notes,** in this form:
@@ -170,7 +171,7 @@ The 4K masters aren't committed; they're attached to a GitHub release, one per p
 5. **Create it** from the repository root, then check that every asset uploaded at the right size:
 
    ```bash
-   gh release create <story>-v1 projects/<story>/workspace/preview/<version>/<story>-<version>-*-4k*.mp4 \
+   gh release create <story>-v1 projects/<story>/workspace/export/<story>-<version>-*-4k*.mp4 \
      --title "<Story title>" --notes-file workspace/tmp/release-notes.md --target "$(git rev-parse HEAD)"
    gh release view <story>-v1
    ```

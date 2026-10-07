@@ -50,5 +50,10 @@ for o in "${ORIENTS[@]}"; do
     -c:v copy -af apad -c:a aac -b:a 256k -shortest -movflags +faststart "$base.mp4"
 done
 
+if [[ $QUALITY == final ]]; then   # a final render exports its deliverables (see AGENTS.md): same names, hard links (copy as a fallback)
+  mkdir -p workspace/export
+  for f in "$OUT"/*; do ln -f "$f" "workspace/export/$(basename "$f")" 2>/dev/null || cp -f "$f" workspace/export/; done
+fi
+
 ln -sfn "$VER" workspace/preview/latest
 ls -la "$OUT"
