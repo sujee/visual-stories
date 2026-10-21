@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tracing an LLM API Request: promo</title>
+<style>
+@font-face{font-family:JBM;font-weight:400;src:url(../../assets/fonts/JetBrainsMono-Regular.ttf) format("truetype")}
+@font-face{font-family:JBM;font-weight:700;src:url(../../assets/fonts/JetBrainsMono-Bold.ttf) format("truetype")}
+:root{--bg:#060A13;--ink:#E8EEF9;--muted:#7484A6}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:JBM,ui-monospace,monospace}
+#wrap{position:relative;width:fit-content;margin:0 auto}
+#stage{display:block;position:relative;z-index:1;max-width:100vw;max-height:calc(100vh - 60px)}
+#gl{position:absolute;left:0;top:0;display:none}
+html.three #gl{display:block}
+#bar{display:flex;gap:12px;align-items:center;max-width:900px;margin:8px auto;padding:0 16px}
+#bar button{font:inherit;padding:6px 14px;border-radius:999px;border:1px solid var(--muted);background:#0D1628;color:var(--ink);cursor:pointer}
+#bar input{flex:1}
+#time{min-width:90px;text-align:right;color:var(--muted)}
+html.capture,html.capture body{overflow:hidden}
+html.capture #bar{display:none}
+html.capture #stage,html.capture #gl{width:100vw;height:100vh;max-height:none}
+</style>
+<script>if(/[?&]capture/.test(location.search))document.documentElement.classList.add('capture');if(/[?&]3d/.test(location.search))document.documentElement.classList.add('three')</script>
+<script src="../../node_modules/three/build/three.min.js"></script>
+<script src="world3d.js"></script>
+</head>
+<body>
+<div id="wrap"><canvas id="gl"></canvas><canvas id="stage" aria-label="Promo: one LLM API request travels from a chat box through the gateway, tokenizer, router, a batched GPU, prefill and decode, and streams back."></canvas></div>
+<div id="bar"><button id="play">⏸</button><input id="scrub" type="range" min="0" step="0.01" value="0"><span id="time"></span></div>
+<script type="module">
+await Promise.all([document.fonts.load('400 40px JBM'), document.fonts.load('700 40px JBM')]);
+/* A pure function of time: seek(t) draws the frame at t seconds. Two layouts share every scene:
+   landscape 16:9 (default) and vertical 9:16 (?portrait), recomposed rather than cropped; in vertical,
+   key content stays clear of the bottom 15% and the right edge. All timings and token ids are examples. */
+const CAPTURE = document.documentElement.classList.contains('capture');
+const P = /[?&]portrait/.test(location.search);
+const W = P ? 1080 : 1920, H = P ? 1920 : 1080;
+const CX = P ? 510 : 960, CY = P ? 860 : 540;          // centre of the safe area
+const DURATION = 31, BEAT = 0.5;                         // story seconds; BEAT: the music's 120 BPM, in real seconds
+// Pacing: real seconds per story second, [story s, rate], linear in between (smooth speed changes). Everything plays
+// 1.25x slower than the story timings below; the router, the batch, prefill and the start of decode play 1.65x slower.
+const PACE = [[0, 1.25], [9.4, 1.25], [10.4, 1.65], [19.6, 1.65], [20.6, 1.25]];
+const rate = s => { const i = PACE.findIndex(([a]) => a > s); if (i < 0) return PACE.at(-1)[1]; const [a, ra] = PACE[i - 1], [b, rb] = PACE[i]; return ra + (rb - ra) * (s - a) / (b - a); };
+const DS = .001, WARP = new Float64Array(Math.ceil(DURATION / DS) + 2);   // WARP[i]: real time at story time i * DS
+for (let i = 1; i < WARP.length; i++) WARP[i] = WARP[i - 1] + rate((i - .5) * DS) * DS;
+const realAt = s => { const x = Math.min(DURATION, Math.max(0, s)) / DS, i = Math.floor(x); return WARP[i] + (WARP[i + 1] - WARP[i]) * (x - i); };
+const storyAt = r => { let lo = 0, hi = WARP.length - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (WARP[m] <= r) lo = m; else hi = m; } return (lo + (r - WARP[lo]) / (WARP[hi] - WARP[lo])) * DS; };
+let REAL = 0;                                            // the real time of the frame being drawn
+const C = { bg: '#060A13', panel: '#0D1628', grid: '#1B2B4B', dim: '#2A3A5E', cyan: '#3BE4FF', violet: '#A08CFF',
+  amber: '#FFB547', green: '#41E88F', red: '#FF5A76', pink: '#FF7AD9', ink: '#E8EEF9', muted: '#7C8CAE' };
+
+/* ---------- helpers ---------- */
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, u) => a + (b - a) * u;
+const eOC = u => 1 - (1 - u) ** 3, eIn = u => u * u * u, eIO = u => u < .5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2;
+const eOB = u => { const c = 1.9; return 1 + (c + 1) * (u - 1) ** 3 + c * (u - 1) ** 2; };
+const bump = (t, a, b) => (t < a || t > b) ? 0 : Math.sin(Math.PI * (t - a) / (b - a));
+let seed = 11;
+const rnd = () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+const cv = document.getElementById('stage'), ctx = cv.getContext('2d');
+let PX = 1, camS = 1;                                    // device px per logical px; current camera zoom (for blur sizes)
+function fit() {
+  const dpr = window.devicePixelRatio || 1;
+  let cw = innerWidth, ch = innerHeight;
+  if (!CAPTURE) { ch -= 60; if (cw / ch > W / H) cw = ch * W / H; else ch = cw * H / W; cv.style.width = cw + 'px'; cv.style.height = ch + 'px'; }
+  cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); PX = cv.width / W;
+}
+fit();
+const font = (size, w = 400) => { ctx.font = `${w} ${size}px JBM`; };
+const glow = (color, b) => { ctx.shadowColor = color; ctx.shadowBlur = b * PX * camS; };
+const noGlow = () => { ctx.shadowBlur = 0; };
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function text(s, x, y, size, color, o = {}) {
+  font(size, o.w || 400); ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'middle';
+  ctx.globalAlpha = o.a ?? 1; ctx.fillStyle = color;
+  if (o.glow) glow(color, o.glow);
+  ctx.fillText(s, x, y); noGlow(); ctx.globalAlpha = 1;
+}
+const tw = (s, size, w = 400) => { font(size, w); return ctx.measureText(s).width; };
+function blob(x, y, r, color, a) {                       // soft additive light
+  if (a <= 0) return;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, color); g.addColorStop(1, 'transparent');
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a; ctx.fillStyle = g;
+  ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.restore();
+}
+function packet(x, y, r, color = C.cyan, a = 1) {
+  blob(x, y, r * 6, color, .45 * a);
+  ctx.globalAlpha = a; glow(color, 24);
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = '#F4FDFF'; ctx.fill();
+  ctx.lineWidth = r * .35; ctx.strokeStyle = color; ctx.stroke(); noGlow(); ctx.globalAlpha = 1;
+}
+function trail(x, y, len, r, color, a = 1) {             // comet tail to the left of (x, y)
+  const g = ctx.createLinearGradient(x - len, y, x, y);
+  g.addColorStop(0, 'transparent'); g.addColorStop(1, color);
+  ctx.globalAlpha = .7 * a; ctx.fillStyle = g;
+  ctx.beginPath(); ctx.moveTo(x - len, y); ctx.lineTo(x, y - r); ctx.lineTo(x, y + r); ctx.fill(); ctx.globalAlpha = 1;
+}
+function ring(x, y, u, rMax, color, w = 4) {             // a burst ring, u 0..1
+  if (u <= 0 || u >= 1) return;
+  ctx.globalAlpha = 1 - u; ctx.lineWidth = w * (1 - u) + 1; ctx.strokeStyle = color; glow(color, 16);
+  ctx.beginPath(); ctx.arc(x, y, rMax * eOC(u), 0, 7); ctx.stroke(); noGlow(); ctx.globalAlpha = 1;
+}
+function chip(s, x, y, size, color, o = {}) {            // a rounded token chip centred at (x, y); returns its width
+  const w = tw(s, size, 700) + size * .8, h = size * 1.5, sc = o.scale ?? 1, a = o.a ?? 1;
+  if (a <= 0) return w;
+  ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.globalAlpha = a;
+  rr(-w / 2, -h / 2, w, h, h * .28);
+  ctx.fillStyle = o.fill || C.panel; if (o.lit) glow(color, 22 * o.lit); ctx.fill(); noGlow();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = color; ctx.stroke();
+  ctx.restore(); ctx.globalAlpha = 1;
+  text(s, x, y + 1, size * sc, o.ink || C.ink, { w: 700, a });
+  return w;
+}
+
+/* ---------- content (illustrative) ---------- */
+const PROMPT = 'Why is the sky blue?';
+const TOKENS = [['Why', 10445], ['is', 382], ['the', 290], ['sky', 13181], ['blue', 9861], ['?', 30]];
+const OUT = ['Sunlight', 'scatters', 'off', 'air', 'molecules,', 'and', 'blue', 'light', 'scatters', 'the', 'most,',
+  'so', 'the', 'whole', 'sky', 'looks', 'blue', 'to', 'you', '.'];
+const T_FIRST = 16.0, T_DEC = 17.0, STEP = 0.25, T_EOS = 22.0;   // first token, decode start, one token per step
+// stopwatch (example timings, seconds of the request's life) at story times; the recap uses the same numbers
+const SW = [[4, 0], [6, .030], [8, .045], [10, .048], [12, .055], [14, .180], [16, .420], [22, 2.140]];
+const STAGES = [['network', .030, C.muted], ['gateway', .015, C.green], ['tokenize', .003, C.violet], ['route', .007, C.pink],
+  ['queue', .125, C.amber], ['prefill', .240, C.cyan], ['decode', 1.720, C.violet]];
+const swAt = t => { if (t <= SW[0][0]) return 0; for (let i = 1; i < SW.length; i++) if (t <= SW[i][0]) { const [a, va] = SW[i - 1], [b, vb] = SW[i]; return lerp(va, vb, (t - a) / (b - a)); } return SW.at(-1)[1]; };
+
+const TS = P ? 34 : 44;                                  // token chip font size
+function tokenRow(y, size = TS, gap = P ? 14 : 20) {
+  const ws = TOKENS.map(([s]) => tw(s, size, 700) + size * .8);
+  const total = ws.reduce((a, b) => a + b, 0) + gap * (ws.length - 1);
+  let x = CX - total / 2;
+  return ws.map(w => { const c = { x: x + w / 2, y, w }; x += w + gap; return c; });
+}
+const TOKCOL = [C.cyan, '#5FD0FF', '#7FB8FF', C.violet, '#C08CFF', C.pink];
+
+/* ---------- background ---------- */
+const LINES = Array.from({ length: 48 }, () => ({ y: rnd() * H, len: 80 + rnd() * 320, v: 1500 + rnd() * 2200, o: rnd() * 6000, a: .12 + rnd() * .4, c: rnd() < .7 ? C.cyan : C.violet }));
+function background(t) {
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  const beat = (t >= 4 && t < 26) ? Math.exp(-((REAL % BEAT)) * 7) : 0;
+  const drift = t < 4 || t >= 6 ? t * 14 : 4 * 14 + (t - 4) * 900;     // the grid races past while the packet flies
+  ctx.fillStyle = C.grid; ctx.globalAlpha = .55 + .35 * beat;
+  const sp = 64, ox = -(drift % sp), oy = (t * 6) % sp;
+  for (let x = ox; x < W + sp; x += sp) for (let y = oy - sp; y < H + sp; y += sp) ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+  ctx.globalAlpha = 1;
+  const rush = Math.max(seg(t, 4, 4.2) * (1 - seg(t, 5.9, 6.3)), bump(t, 7.4, 8.4));   // speed lines while the packet races
+  if (rush > 0) for (const l of LINES) {
+    const x = W + 400 - ((t * l.v + l.o) % (W + 800));
+    const g = ctx.createLinearGradient(x, 0, x + l.len, 0); g.addColorStop(0, l.c); g.addColorStop(1, 'transparent');
+    ctx.globalAlpha = l.a * rush; ctx.fillStyle = g; ctx.fillRect(x, l.y, l.len, 2.5);
+  }
+  ctx.globalAlpha = 1;
+  const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .3, W / 2, H / 2, Math.max(W, H) * .75);
+  v.addColorStop(0, 'transparent'); v.addColorStop(1, 'rgba(0,0,0,.75)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+
+/* ---------- scenes: [start, end, draw(t), camera(t) -> {x, y, s}] ----------
+   A chase cam: the camera locks onto the request (Z = close-up zoom) and pulls out only at decisions (gateway, router,
+   batch). At a cut the request sits at the same screen spot and zoom on both sides, so the journey reads as one shot;
+   only the zoom-throughs at FLASH_CUTS flash. */
+const Z = 1.5;
+const follow = (x, y, s = Z) => ({ x, y, s });
+const camMix = (a, b, u) => ({ x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u), s: lerp(a.s, b.s, u) });
+const SCENES = [];
+const scene = (a, b, draw, cam = () => ({ x: CX, y: CY, s: 1 })) => SCENES.push({ a, b, draw, cam });
+
+// 0 · hook: "What happens when we send a request to an LLM?" while a prompt is typed; send; "Let's trace this request"
+const BOX = { w: P ? 880 : 1000, h: P ? 112 : 120 }; BOX.x = CX - BOX.w / 2; BOX.y = CY + (P ? 40 : 60);
+const BTN = { x: BOX.x + BOX.w - BOX.h / 2, y: BOX.y + BOX.h / 2, r: BOX.h / 2 - 14 };
+const pk0 = t => ({ x: BTN.x, y: BTN.y - 8 * Math.sin(t * 3) * seg(t, 2.3, 2.8) });
+scene(0, 4, t => {
+  const fade = 1 - seg(t, 3.3, 3.8);
+  ctx.globalAlpha = fade;
+  rr(BOX.x, BOX.y, BOX.w, BOX.h, BOX.h / 2); ctx.fillStyle = C.panel; glow(C.cyan, 10 + 20 * bump(t, 1.9, 2.4)); ctx.fill(); noGlow();
+  ctx.lineWidth = 2; ctx.strokeStyle = C.dim; ctx.stroke(); ctx.globalAlpha = 1;
+  const n = Math.floor(seg(t, .35, 1.55) * PROMPT.length + .001), typed = PROMPT.slice(0, n);
+  const k = eIO(seg(t, 2.0, 2.3)), sz = P ? 40 : 44;
+  text(typed, BOX.x + 56 + k * (BOX.w - 240), BOX.y + BOX.h / 2, sz, C.ink, { align: 'left', a: (1 - k) * fade });
+  if (t < 2 && (n < PROMPT.length || Math.floor(t * 2.4) % 2 === 0)) {
+    ctx.fillStyle = C.cyan; ctx.globalAlpha = fade;
+    ctx.fillRect(BOX.x + 60 + tw(typed, sz), BOX.y + BOX.h / 2 - sz * .55, 4, sz * 1.1); ctx.globalAlpha = 1;
+  }
+  const ready = seg(t, 1.5, 1.6), press = 1 - .18 * bump(t, 1.9, 2.15);
+  ctx.save(); ctx.translate(BTN.x, BTN.y); ctx.scale(press, press); ctx.globalAlpha = fade;
+  ctx.beginPath(); ctx.arc(0, 0, BTN.r, 0, 7); ctx.fillStyle = ready > 0 ? C.cyan : C.dim; if (ready) glow(C.cyan, 18); ctx.fill(); noGlow();
+  ctx.strokeStyle = C.bg; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.beginPath();
+  ctx.moveTo(0, 14); ctx.lineTo(0, -14); ctx.moveTo(-12, -2); ctx.lineTo(0, -14); ctx.lineTo(12, -2); ctx.stroke(); ctx.restore(); ctx.globalAlpha = 1;
+  ring(BTN.x, BTN.y, seg(t, 2.0, 2.5), 160, C.cyan);
+  if (t > 2.05) { const p = pk0(t); packet(p.x, p.y, 16 * eOB(seg(t, 2.05, 2.4))); }
+  const ask = eOC(seg(t, .1, .5)) * (1 - seg(t, 2.0, 2.25)), ay = CY - (P ? 300 : 200);   // the question, while the prompt is typed
+  const qs = P ? ['What happens when', 'we send a request', 'to an LLM?'] : ['What happens when we send', 'a request to an LLM?'];
+  qs.forEach((s, i) => text(s, CX, ay + (i - (qs.length - 1) / 2) * (P ? 86 : 80) + 16 * (1 - ask), P ? 66 : 62, C.ink, { w: 700, a: ask }));
+  const qa = eOC(seg(t, 2.35, 2.85)) * fade, qy = CY - (P ? 260 : 170) + 24 * (1 - qa);
+  const q = P ? [["Let's trace", C.ink], ['this ', C.ink, 'request']] : [["Let's trace this ", C.ink, 'request']];
+  q.forEach(([s, c, hi], i) => {
+    const sz2 = P ? 76 : 68, y = qy + i * sz2 * 1.25 - (q.length - 1) * sz2 * .62;
+    const full = s + (hi || ''), x0 = CX - tw(full, sz2, 700) / 2;
+    text(s, x0, y, sz2, c, { w: 700, a: qa, align: 'left' });
+    if (hi) text(hi, x0 + tw(s, sz2, 700), y, sz2, C.cyan, { w: 700, a: qa, align: 'left', glow: 18 });
+  });
+}, t => { const p = pk0(t), u = eIO(seg(t, 3.1, 3.8)); return { x: lerp(CX, p.x, u), y: lerp(CY, p.y, u), s: 1 + 5 * eIn(seg(t, 3.2, 4.0)) }; });
+
+// 1 · the request flies out over the network
+const pk1 = t => CX - 40 + 1300 * eIn(seg(t, 5.55, 6.0));
+scene(4, 6, t => {
+  const u = t - 4, x = pk1(t) + 30 * Math.sin(u * 5), y = CY + 18 * Math.sin(u * 7);
+  trail(x, y, 520, 13, C.cyan); packet(x, y, 18);
+  const ca = eOC(seg(t, 4.2, 4.5)) * (1 - seg(t, 5.5, 5.7));
+  chip('HTTPS  POST /v1/messages', x, y - 80, P ? 26 : 28, C.cyan, { a: ca, ink: C.cyan });
+}, t => follow(pk1(t), CY));
+
+// 2 · gateway: auth and rate limits (zoom out to see the others)
+const GX = CX + (P ? 60 : 80);
+const pk2 = t => t < 7.3 ? lerp(GX - 760, GX - 130, eOC(seg(t, 6.0, 6.65))) : lerp(GX - 130, GX + 1000, eIn(seg(t, 7.3, 8.0)));
+scene(6, 8, t => {
+  const gx = CX + (P ? 60 : 80), lanes = P ? [CY - 260, CY, CY + 260] : [CY - 230, CY, CY + 230];
+  const top = lanes[0] - 120, bot = lanes[2] + 120, ok = seg(t, 7.15, 7.3);
+  for (const s of [-1, 1]) {
+    rr(gx + s * 70 - 11, top, 22, bot - top, 11);
+    ctx.fillStyle = ok ? C.green : C.dim; if (ok) glow(C.green, 22 * ok); ctx.fill(); noGlow();
+  }
+  rr(gx - 81, top - 22, 162, 22, 11); ctx.fillStyle = ok ? C.green : C.dim; ctx.fill();
+  const sy = lerp(top, bot, eIO(seg(t, 6.6, 7.05)));
+  if (t > 6.6 && t < 7.1) { ctx.fillStyle = C.cyan; glow(C.cyan, 20); ctx.fillRect(gx - 60, sy - 2, 120, 4); noGlow(); }
+  // another client: allowed, passes alongside
+  const ax = t < 7.35 ? lerp(gx - 900, gx - 130, eOC(seg(t, 6.15, 6.8))) : lerp(gx - 130, gx + 800, eIn(seg(t, 7.4, 8.0)));
+  packet(ax, lanes[0], 12, C.amber, .8 * (1 - seg(t, 7.6, 7.85)));
+  // another client over its rate limit: bounced
+  const rej = seg(t, 7.0, 7.1), bx = t < 7.0 ? lerp(gx - 950, gx - 130, eOC(seg(t, 6.1, 6.8))) : lerp(gx - 130, gx - 650, eOC(seg(t, 7.0, 7.7)));
+  packet(bx, lanes[2], 12, rej ? C.red : C.pink, .85 * (1 - seg(t, 7.5, 7.9)));
+  if (rej) { ring(bx, lanes[2], seg(t, 7.0, 7.4), 90, C.red); text('✕  429', bx, lanes[2] - 52, 26, C.red, { w: 700, a: 1 - seg(t, 7.6, 7.95) }); }
+  // our request
+  const ox = pk2(t);
+  trail(ox, CY, 260, 11, C.cyan); packet(ox, CY, 16);
+  [['auth ✓', 6.95], ['rate limit ✓', 7.15]].forEach(([s, at], i) =>
+    chip(s, gx - 130 - 0, CY - 70 - i * 0 + (i ? 120 : -50) + 50, 24, C.green, { scale: eOB(seg(t, at, at + .25)), a: seg(t, at, at + .05) * (1 - seg(t, 7.6, 7.85)), ink: C.green }));
+}, t => camMix(follow(pk2(t), CY), { x: GX - 60, y: CY, s: P ? .95 : 1 }, eIO(seg(t, 6.3, 6.75)) * (1 - eIO(seg(t, 7.3, 7.65)))));
+
+// 3 · tokenizer: the packet bursts into tokens
+const pk3 = t => lerp(CX - 1000, CX, eOC(seg(t, 8.0, 8.35)));
+scene(8, 10, t => {
+  const row = tokenRow(CY);
+  if (t < 8.4) { const x = pk3(t); trail(x, CY, 300, 11, C.cyan); packet(x, CY, 16 + 10 * seg(t, 8.25, 8.4)); }
+  ring(CX, CY, seg(t, 8.4, 8.9), 420, C.cyan, 6);
+  blob(CX, CY, 300, C.cyan, .6 * (1 - seg(t, 8.4, 8.8)) * (t > 8.4));
+  row.forEach((c, i) => {
+    const u = eOB(seg(t, 8.42 + i * .04, 8.85 + i * .04));
+    if (u <= 0) return;
+    const m = eIO(seg(t, 9.45, 9.9));                         // then they pack into the request pill for the router
+    const x = lerp(lerp(CX, c.x, u), CX - 62.5 + i * 25, m);
+    chip(TOKENS[i][0], x, CY, TS, TOKCOL[i], { scale: lerp(lerp(.3, 1, clamp(u, 0, 1.2)), .22, m), lit: bump(t, 8.42 + i * .04, 9.1), a: 1 - seg(t, 9.8, 9.95) });
+    text(String(TOKENS[i][1]), c.x, CY + TS * 1.4, P ? 20 : 22, C.muted, { a: seg(t, 8.95 + i * .04, 9.2 + i * .04) * (1 - seg(t, 9.3, 9.45)) });
+  });
+  if (t > 9.75) pill(CX, CY, seg(t, 9.75, 9.95));
+}, t => camMix(camMix(follow(pk3(t), CY), { x: CX, y: CY, s: P ? 1.25 : 1.1 }, eIO(seg(t, 8.35, 8.8))), follow(CX, CY), eIO(seg(t, 9.5, 10))));
+
+// 4 · cache-aware router: zoom out, scan the replicas, the one with this prefix cached wins
+const REP = P ? [0, 1, 2, 3].map(i => ({ x: CX + (i % 2 ? 210 : -210), y: CY + 40 + Math.floor(i / 2) * 260, w: 380, h: 190 }))
+              : [0, 1, 2, 3].map(i => ({ x: CX + 380, y: CY + (i - 1.5) * 190, w: 330, h: 150 }));
+const PILL = P ? { x: CX, y: CY - 400 } : { x: CX - 560, y: CY };
+const HIT = 2, CACHE = [0, 1, 2, 3].map(i => Array.from({ length: 10 }, (_, j) => i === HIT && j < 6 ? -1 : (rnd() < .75 ? Math.floor(rnd() * 4) : null)));
+function pill(x, y, a = 1, s = 1) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); ctx.globalAlpha = a;
+  rr(-92, -26, 184, 52, 26); ctx.fillStyle = C.panel; glow(C.cyan, 16); ctx.fill(); noGlow(); ctx.lineWidth = 2.5; ctx.strokeStyle = C.cyan; ctx.stroke();
+  TOKCOL.forEach((c, i) => { ctx.fillStyle = c; rr(-72 + i * 25, -10, 19, 20, 4); ctx.fill(); });
+  ctx.restore(); ctx.globalAlpha = 1;
+}
+const routeEnd = r => P ? { x: r.x, y: r.y - r.h / 2 } : { x: r.x - r.w / 2, y: r.y };
+function routeCurve(r, u) {                               // quadratic curve from the pill to replica r
+  const e = routeEnd(r), s = PILL, m = P ? { x: s.x, y: (s.y + e.y) / 2 } : { x: (s.x + e.x) / 2, y: s.y };
+  const q = 1 - u; return { x: q * q * s.x + 2 * q * u * m.x + u * u * e.x, y: q * q * s.y + 2 * q * u * m.y + u * u * e.y };
+}
+scene(10, 12, t => {
+  const scan = seg(t, 10.45, 11.0), hit = seg(t, 11.0, 11.1), cur = t < 11 && t > 10.45 ? Math.floor(scan * 4) % 4 : -1;
+  REP.forEach((r, i) => {
+    const won = i === HIT && hit, a = eOC(seg(t, 10.05 + i * .06, 10.4 + i * .06));
+    ctx.globalAlpha = a; ctx.setLineDash([10, 10]); ctx.lineDashOffset = -t * 120 * (won ? 1 : 0);
+    ctx.lineWidth = won ? 5 : 2.5; ctx.strokeStyle = won ? C.cyan : C.dim; if (won) glow(C.cyan, 16);
+    ctx.beginPath(); for (let k = 0; k <= 30; k++) { const p = routeCurve(r, k / 30); k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); } ctx.stroke(); ctx.setLineDash([]); noGlow();
+    rr(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 18); ctx.fillStyle = C.panel;
+    if (won || cur === i) glow(won ? C.green : C.ink, 26); ctx.fill(); noGlow();
+    ctx.lineWidth = won ? 4 : 2.5; ctx.strokeStyle = won ? C.green : cur === i ? C.ink : C.dim; ctx.stroke();
+    text(`replica ${i + 1}`, r.x - r.w / 2 + 22, r.y - r.h / 2 + 30, 22, C.muted, { align: 'left', a });
+    const cw = (r.w - 44 - 9 * 6) / 10;
+    CACHE[i].forEach((v, j) => {
+      const x = r.x - r.w / 2 + 22 + j * (cw + 6), y = r.y + 4;
+      rr(x, y, cw, r.h * .32, 5);
+      if (v === -1) { ctx.fillStyle = won ? TOKCOL[j] : '#24406A'; if (won) glow(C.cyan, 14); }
+      else ctx.fillStyle = v === null ? '#111C30' : ['#3A3360', '#4A3A28', '#28483A', '#4A2A44'][v];
+      ctx.fill(); noGlow();
+    });
+    ctx.globalAlpha = 1;
+  });
+  if (hit) chip('cache hit', REP[HIT].x, REP[HIT].y - REP[HIT].h / 2 - (P ? 34 : 32), 24, C.green, { ink: C.green, scale: eOB(seg(t, 11.0, 11.3)), lit: 1 });
+  const mv = eIO(seg(t, 11.15, 11.85)), p = routeCurve(REP[HIT], mv);
+  pill(p.x, p.y, 1, lerp(1, .6, mv));
+}, t => {
+  const r = REP[HIT], p = routeCurve(r, eIO(seg(t, 11.15, 11.85)));
+  let c = camMix(follow(PILL.x, PILL.y), { x: CX, y: CY + (P ? -60 : 0), s: P ? .95 : 1 }, eIO(seg(t, 10.05, 10.6)));
+  c = camMix(c, follow(p.x, p.y, 1.3), eIO(seg(t, 11.0, 11.5)));
+  return camMix(c, { x: r.x, y: r.y, s: 3.2 }, eIn(seg(t, 11.75, 12.0)));   // into the replica: a zoom-through
+});
+
+// 5 · queue and batch: our row slides into a GPU batch with other people's requests
+const GPU = { s: P ? 760 : 600 }, LANES = 8, OURS = 3;
+const QPOS = (x0, y0, s, laneY) => P ? { x: x0 + 36, y: y0 + s + 170 } : { x: x0 - 560, y: laneY };   // where our request waits
+const BATCH = Array.from({ length: LANES }, (_, i) => i === OURS ? null : { n: 3 + Math.floor(rnd() * 8), c: [C.amber, C.pink, C.green, C.violet][i % 4], d: rnd() * .5 });
+scene(12, 14, t => {
+  const s = GPU.s, x0 = CX - s / 2, y0 = CY - s / 2, pulse = bump(t, 13.45, 13.95);
+  ctx.strokeStyle = C.dim; ctx.lineWidth = 4;
+  for (let k = 0; k < 12; k++) { const o = 40 + k * (s - 80) / 11; for (const [ax, ay, bx, by] of [[x0 + o, y0, x0 + o, y0 - 24], [x0 + o, y0 + s, x0 + o, y0 + s + 24], [x0, y0 + o, x0 - 24, y0 + o], [x0 + s, y0 + o, x0 + s + 24, y0 + o]]) { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); } }
+  rr(x0, y0, s, s, 28); ctx.fillStyle = C.panel; glow(C.cyan, 10 + 40 * pulse); ctx.fill(); noGlow(); ctx.lineWidth = 3; ctx.strokeStyle = pulse ? C.cyan : C.dim; ctx.stroke();
+  text('GPU', CX, CY, s * .3, C.ink, { w: 700, a: .05 });
+  const lh = (s - 80) / LANES, sq = lh * .62;
+  BATCH.forEach((b, i) => {
+    const y = y0 + 40 + i * lh + lh / 2, n = b ? b.n : 6;
+    const u = b ? eOC(seg(t, 12.0 + b.d, 12.55 + b.d)) : eOC(seg(t, 12.85, 13.35)), q = QPOS(x0, y0, s, y);
+    const lx = b ? lerp(x0 - 900, x0 + 36, u) : lerp(q.x, x0 + 36, u), ly = b ? y : lerp(q.y, y, u);
+    for (let j = 0; j < n; j++) {
+      rr(lx + j * (sq + 8), ly - sq / 2, sq, sq, 5);
+      ctx.fillStyle = b ? b.c : TOKCOL[j]; ctx.globalAlpha = b ? .45 + .4 * pulse : 1;
+      if (!b) glow(C.cyan, 14); ctx.fill(); noGlow(); ctx.globalAlpha = 1;
+    }
+    if (!b && u > .99) { ctx.lineWidth = 2.5; ctx.strokeStyle = C.cyan; rr(x0 + 24, y - lh / 2 + 3, s - 48, lh - 6, 10); ctx.stroke(); }
+  });
+  text('8 requests · 1 GPU · 1 batch', CX, y0 + s + 70, P ? 30 : 28, C.muted, { a: seg(t, 12.6, 12.9) * (1 - seg(t, 13.45, 13.65)) });
+}, t => {
+  const s = GPU.s, x0 = CX - s / 2, y0 = CY - s / 2, lh = (s - 80) / LANES, sq = lh * .62, laneY = y0 + 40 + OURS * lh + lh / 2;
+  const q = QPOS(x0, y0, s, laneY), u = eOC(seg(t, 12.85, 13.35)), mid = 2.5 * (sq + 8);
+  const ours = follow(lerp(q.x, x0 + 36, u) + mid, lerp(q.y, laneY, u), 1.6);
+  const c = camMix(ours, { x: P ? CX : CX - 180, y: P ? CY + 130 : CY, s: P ? .88 : .95 }, eIO(seg(t, 12.1, 12.8)));
+  return camMix(c, { x: x0 + 36 + mid, y: laneY, s: 2.6 }, eIn(seg(t, 13.55, 14.0)));   // into our lane: a zoom-through
+});
+
+function gpuFrame(x0, y0, x1, y1, a = 1, lit = 0) {       // "this happens on the GPU": a labelled chip outline; lit 0..1 glows
+  ctx.globalAlpha = a * .9; ctx.strokeStyle = lit > .05 ? C.cyan : C.dim; ctx.lineWidth = 3 + 2 * lit;
+  rr(x0, y0, x1 - x0, y1 - y0, 26); ctx.fillStyle = 'rgba(13,22,40,.55)'; ctx.fill(); if (lit > .05) glow(C.cyan, 30 * lit); ctx.stroke(); noGlow();
+  for (let x = x0 + 40; x < x1 - 20; x += 44) for (const [y, d] of [[y0, -14], [y1, 14]]) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + d); ctx.stroke(); }
+  for (let y = y0 + 40; y < y1 - 20; y += 44) for (const [x, d] of [[x0, -14], [x1, 14]]) { ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + d, y); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+  text('GPU', x0 + 24, y0 + 30, 24, C.muted, { w: 700, align: 'left', a });
+}
+
+// 6 · prefill: the whole prompt in one parallel pass fills the KV cache; the first token comes out
+const KVB = { w: P ? 30 : 38, h: P ? 20 : 24, gap: 6, n: 4 };
+scene(14, 17, t => {
+  const ry = CY - (P ? 220 : 160), row = tokenRow(ry), lit = seg(t, 14.5, 14.6) * (1 - .5 * seg(t, 15.2, 15.8));
+  const half = (row.at(-1).x + row.at(-1).w / 2 - row[0].x + row[0].w / 2) / 2 + (P ? 130 : 170);
+  gpuFrame(CX - half, ry - 90, CX + half, CY + (P ? 160 : 200) + 70, 1, bump(t, 14.15, 14.75));
+  const dx = -(2 * half + 200) * (1 - eOC(seg(t, 14.0, 14.45)));   // the request enters the GPU from the left
+  blob(CX, ry, 900, C.cyan, .35 * bump(t, 14.45, 15.0));
+  if (t > 14.45 && t < 14.9) { const x = lerp(-200, W + 200, seg(t, 14.45, 14.75)); ctx.fillStyle = C.cyan; ctx.globalAlpha = .15; ctx.fillRect(0, ry - 70, W, 140); ctx.globalAlpha = 1; void x; }
+  row.forEach((c, i) => {
+    chip(TOKENS[i][0], c.x + dx, ry, TS, lit ? TOKCOL[i] : TOKCOL[i] + '88', { lit, scale: 1 + .12 * bump(t, 14.5, 14.8) });
+    for (let k = 0; k < KVB.n; k++) {
+      const by = ry + TS + 30 + k * (KVB.h + KVB.gap), f = seg(t, 14.6 + k * .1, 14.75 + k * .1);
+      rr(c.x + dx - KVB.w / 2, by, KVB.w, KVB.h, 4); ctx.fillStyle = f ? TOKCOL[i] : '#111C30'; ctx.globalAlpha = .25 + .75 * f;
+      if (f && t < 15.4) glow(TOKCOL[i], 12); ctx.fill(); noGlow(); ctx.globalAlpha = 1;
+    }
+  });
+  text('KV cache', row[0].x - row[0].w / 2 - 20, ry + TS + 30 + 1.5 * (KVB.h + KVB.gap), P ? 22 : 24, C.muted, { align: 'right', a: seg(t, 15.0, 15.3) });
+  // the first output token
+  const fy = CY + (P ? 160 : 200), fu = eOB(seg(t, 15.75, 16.15));
+  if (t > 15.4) {
+    const last = row.at(-1), a = seg(t, 15.4, 15.6);
+    ctx.globalAlpha = a; ctx.setLineDash([8, 8]); ctx.lineDashOffset = -t * 80; ctx.strokeStyle = C.violet; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(CX, ry + TS + 30 + 4 * (KVB.h + KVB.gap) + 6); ctx.lineTo(CX, fy - 50 * fu); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1; void last;
+  }
+  ring(CX, fy, seg(t, 16.0, 16.6), 260, C.violet, 6);
+  if (fu > 0) chip(OUT[0], CX, fy, P ? 54 : 60, C.violet, { scale: fu, lit: 1 - .6 * seg(t, 16.3, 17) });
+}, t => {
+  const ry = CY - (P ? 220 : 160), fy = CY + (P ? 160 : 200);
+  const c = camMix({ x: CX, y: CY, s: 1.1 }, { x: CX, y: CY, s: 1 }, eOC(seg(t, 14.0, 14.5)));
+  return camMix(c, { x: CX, y: (CY + fy) / 2, s: 1.15 }, eIO(seg(t, 16.15, 17.0)));   // lean toward the first token
+});
+
+// 7 · decode: one token per pass, reusing the KV cache, streamed back as server-sent events
+const step = t => Math.min(OUT.length - 1, Math.floor((t - T_DEC) / STEP) + 1);  // index of the newest output token
+const GP = P ? { x: CX, y: CY - 320 } : { x: CX - 470, y: CY - 40 };          // decode panel centre
+const SCR = P ? { x: CX - 430, y: CY + 70, w: 860, h: 500 } : { x: CX + 150, y: CY - 250, w: 680, h: 500 };
+scene(17, 22, t => {
+  const k = step(t), since = t - (T_DEC + (k - 1) * STEP);
+  // KV strip: 6 prompt columns, then one more column per generated token
+  const cols = 6 + k, cw = P ? 14 : 16, cg = 5, bh = P ? 16 : 18, sx = GP.x - (26 * (cw + cg)) / 2, sy = GP.y + 30;
+  const sweep = seg(since, 0, .14) * cols;
+  for (let j = 0; j < cols; j++) {
+    const isNew = j === cols - 1, read = Math.abs(j - sweep) < 1.2 && since < .16;
+    for (let r = 0; r < KVB.n; r++) {
+      rr(sx + j * (cw + cg), sy + r * (bh + 5), cw, bh, 3);
+      ctx.fillStyle = j < 6 ? TOKCOL[j] : C.violet; ctx.globalAlpha = read ? 1 : isNew ? seg(since, .1, .2) : .55;
+      if (read) glow(C.ink, 14); ctx.fill(); noGlow();
+    }
+  }
+  ctx.globalAlpha = 1;
+  text('KV cache', sx, sy - 22, 22, C.muted, { align: 'left' });
+  gpuFrame(GP.x - 300, GP.y - 140, GP.x + 300, GP.y + 150);
+  const pop = eOB(seg(since, 0, .16));
+  chip(OUT[k], GP.x, GP.y - 70, P ? 50 : 54, C.violet, { scale: .7 + .3 * pop, lit: 1 - seg(since, 0, .25) });
+  // the stream: one SSE event per token
+  const from = P ? { x: GP.x, y: GP.y + 164 } : { x: GP.x + 314, y: GP.y + 40 };
+  const to = P ? { x: GP.x, y: SCR.y - 14 } : { x: SCR.x - 14, y: GP.y + 40 };
+  ctx.setLineDash([6, 10]); ctx.lineDashOffset = -t * 60; ctx.strokeStyle = C.dim; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); ctx.setLineDash([]);
+  text('SSE stream', (from.x + to.x) / 2 + (P ? 110 : 0), (from.y + to.y) / 2 - (P ? 0 : 30), 22, C.muted);
+  for (let j = 1; j <= k; j++) {
+    const u = seg(t, T_DEC + (j - 1) * STEP + .05, T_DEC + (j - 1) * STEP + .22);
+    if (u > 0 && u < 1) packet(lerp(from.x, to.x, u), lerp(from.y, to.y, u), 8, C.violet);
+  }
+  // the developer's screen
+  rr(SCR.x, SCR.y, SCR.w, SCR.h, 22); ctx.fillStyle = '#0A1222'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = C.dim; ctx.stroke();
+  [C.red, C.amber, C.green].forEach((c, i) => { ctx.beginPath(); ctx.arc(SCR.x + 32 + i * 26, SCR.y + 30, 8, 0, 7); ctx.fillStyle = c; ctx.globalAlpha = .7; ctx.fill(); ctx.globalAlpha = 1; });
+  text('> ' + PROMPT, SCR.x + 32, SCR.y + 82, P ? 30 : 28, C.muted, { align: 'left' });
+  const shown = Math.min(OUT.length, 1 + Math.max(0, Math.floor((t - T_DEC - .22) / STEP) + 1));
+  const sz = P ? 40 : 38, maxW = SCR.w - 64; font(sz);
+  const lines = [''];
+  for (const w of OUT.slice(0, shown)) { const s = lines.at(-1) ? lines.at(-1) + (w === '.' ? '' : ' ') + w : w; if (tw(s, sz) > maxW) lines.push(w); else lines[lines.length - 1] = s; }
+  lines.forEach((s, i) => text(s, SCR.x + 32, SCR.y + 150 + i * sz * 1.45, sz, C.ink, { align: 'left' }));
+  const lx = SCR.x + 32 + tw(lines.at(-1), sz) + 10, ly = SCR.y + 150 + (lines.length - 1) * sz * 1.45;
+  if (Math.floor(t * 4) % 2 === 0) { ctx.fillStyle = C.violet; ctx.fillRect(lx, ly - sz * .5, sz * .5, sz); }
+}, t => camMix({ x: GP.x, y: GP.y - 70 - (P ? 80 : 100), s: 1.15 }, { x: CX, y: CY, s: 1 }, eIO(seg(t, 17.0, 17.4))));   // starts where prefill's first token was
+
+// 8 · stop: <eos>, the stopwatch stops, and the whole trip on one line
+const BAR = P ? { x: CX - 420, w: 840, y: CY + 180 } : { x: CX - 700, w: 1400, y: CY + 130 };
+const TOTAL = STAGES.reduce((a, s) => a + s[1], 0);
+scene(22, 26, t => {
+  const st = eOB(seg(t, 22.0, 22.3));
+  chip('<eos>', CX, CY - (P ? 330 : 270), P ? 44 : 44, C.amber, { scale: lerp(2.2, 1, clamp(st, 0, 1.3)), a: seg(t, 22, 22.08), ink: C.amber, lit: 1 - seg(t, 22.3, 23) });
+  ring(CX, CY - (P ? 330 : 270), seg(t, 22.05, 22.6), 300, C.amber, 6);
+  text(`${TOTAL.toFixed(2)} s`, CX, CY - (P ? 130 : 100), P ? 150 : 140, C.ink, { w: 700, glow: 30 * (1 - seg(t, 22.2, 23)), a: seg(t, 22.1, 22.2) });
+  // the trip line: stages in proportion to the time spent in each
+  const sw = seg(t, 22.7, 24.3) * BAR.w; let x = BAR.x; const xs = [];
+  rr(BAR.x, BAR.y - 14, BAR.w, 28, 14); ctx.fillStyle = '#111C30'; ctx.fill();
+  ctx.save(); rr(BAR.x, BAR.y - 14, BAR.w, 28, 14); ctx.clip();
+  for (const [name, d, c] of STAGES) {
+    const w = d / TOTAL * BAR.w; xs.push([x, w, name, c]);
+    ctx.fillStyle = c; ctx.fillRect(x, BAR.y - 14, Math.max(0, Math.min(w, BAR.x + sw - x)), 28); x += w;
+  }
+  ctx.restore();
+  if (sw > 0 && sw < BAR.w) packet(BAR.x + sw, BAR.y, 12, C.ink);
+  const la = seg(t, 24.3, 24.6), ttft = xs[5][0] + xs[5][1];
+  for (const [x0, x1, s, c, up] of [[BAR.x, ttft, 'first token  0.42 s', C.amber, 1], [ttft, BAR.x + BAR.w, 'streaming  1.72 s', C.violet, 1]]) {
+    const y = BAR.y - 44; ctx.globalAlpha = la; ctx.strokeStyle = c; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x0 + 2, y + 14); ctx.lineTo(x0 + 2, y); ctx.lineTo(x1 - 2, y); ctx.lineTo(x1 - 2, y + 14); ctx.stroke(); ctx.globalAlpha = 1;
+    text(s, Math.max((x0 + x1) / 2, BAR.x + tw(s, 26, 700) / 2), y - 26, 26, c, { w: 700, a: la }); void up;
+  }
+  for (const [x0, w, name, c] of xs.slice(4)) text(name, x0 + w / 2, BAR.y + 46 + (P && name === 'prefill' ? 32 : 0), P ? 22 : 24, c, { a: seg(t, 24.5, 24.8) });
+  text('example timings', CX, BAR.y + 110, 22, C.muted, { a: seg(t, 24.7, 25) });
+}, t => ({ x: CX, y: CY, s: lerp(1.15, 1, eOC(seg(t, 22, 22.5))) }));
+
+// 9 · card: the title and a pointer to the full video
+scene(26, DURATION, t => {
+  const a = eOC(seg(t, 26.1, 26.7)), ty = CY - (P ? 200 : 120);
+  const title = P ? ['Tracing an', 'LLM API Request'] : ['Tracing an LLM API Request'], ts = P ? 90 : 88;
+  title.forEach((s, i) => text(s, CX, ty + (i - (title.length - 1) / 2) * ts * 1.2 + 30 * (1 - a), ts, C.ink, { w: 700, a, glow: 14 }));
+  const sa = seg(t, 26.6, 27.0);
+  text(P ? 'from your code to the GPU' : 'from your code to the GPU and back', CX, ty + (P ? 170 : 100), P ? 36 : 36, C.muted, { a: sa });
+  if (P) text('and back', CX, ty + 220, 36, C.muted, { a: sa });
+  // the whole trip in miniature: the request bounces from the client to the GPU and back, again and again
+  const by = ty + (P ? 400 : 260), cl = CX - (P ? 300 : 420), gp = CX + (P ? 300 : 420), ia = eOC(seg(t, 27.1, 27.5));
+  ctx.globalAlpha = ia; ctx.setLineDash([6, 12]); ctx.strokeStyle = C.dim; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(cl + 60, by); ctx.lineTo(gp - 60, by); ctx.stroke(); ctx.setLineDash([]);
+  rr(cl - 40, by - 30, 80, 52, 8); ctx.lineWidth = 3.5; ctx.strokeStyle = C.ink; ctx.stroke();                      // client: a laptop
+  ctx.beginPath(); ctx.moveTo(cl - 52, by + 32); ctx.lineTo(cl + 52, by + 32); ctx.stroke();
+  rr(gp - 32, by - 32, 64, 64, 10); ctx.stroke();                                                                       // GPU: a chip
+  for (let k = -1; k <= 1; k++) for (const [ax, ay, bx, bY] of [[gp + k * 18, by - 32, gp + k * 18, by - 44], [gp + k * 18, by + 32, gp + k * 18, by + 44], [gp - 32, by + k * 18, gp - 44, by + k * 18], [gp + 32, by + k * 18, gp + 44, by + k * 18]]) { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, bY); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+  text('client', cl, by + 74, 24, C.muted, { a: ia }); text('GPU', gp, by + 74, 24, C.muted, { a: ia });
+  if (t > 27.5) {
+    const ph = ((t - 27.5) / 1.6) % 1, out = ph < .5, u = eIO(out ? ph * 2 : (ph - .5) * 2);
+    const x = out ? lerp(cl + 60, gp - 60, u) : lerp(gp - 60, cl + 60, u), col = out ? C.cyan : C.violet;
+    packet(x, by, 11, col, ia);
+    ring(gp, by, out ? 0 : seg(ph, .5, .75), 70, C.cyan, 3); ring(cl, by, out && t > 29 ? seg(ph, 0, .25) : 0, 70, C.violet, 3);
+  }
+  text('Created by sujee.dev', CX, P ? 1500 : H - 90, P ? 30 : 26, C.muted, { a: seg(t, 28.8, 29.4) * .9 });
+});
+
+/* ---------- HUD: stopwatch and current stage (example timings) ---------- */
+// the stage title, big and centred at the top: [from, to (story s), name, what happens there]
+const TITLES = [[4, 6, 'request', 'HTTPS POST to the API'], [6, 8, 'gateway', 'auth + rate limits'], [8, 10, 'tokenizer', 'text → tokens'],
+  [10, 12, 'router', 'sends it where its prompt is cached'], [12, 14, 'queue', 'batched with other requests on one GPU'],
+  [14, T_DEC, 'prefill on the GPU', 'the whole prompt at once'], [T_DEC, T_EOS, 'decode on the GPU', 'one token at a time, streamed back']];
+function stageTitle(t) {
+  const st = TITLES.find(([a, b]) => t >= a && t < b);
+  if (!st) return;
+  const [a0, a1, name, sub] = st, a = eOC(seg(t, a0 + .05, a0 + .35)) * (1 - seg(t, a1 - .12, a1)), y = (P ? 300 : 80) + 14 * (1 - a);
+  const bw = Math.max(tw(name, P ? 60 : 54, 700), tw(sub, P ? 28 : 26)) + 120;
+  const g = ctx.createLinearGradient(0, y - 60, 0, y + 110); g.addColorStop(0, 'rgba(6,10,19,0)'); g.addColorStop(.3, 'rgba(6,10,19,.75)'); g.addColorStop(.8, 'rgba(6,10,19,.75)'); g.addColorStop(1, 'rgba(6,10,19,0)');
+  ctx.globalAlpha = a; ctx.fillStyle = g; ctx.fillRect(CX - bw / 2, y - 60, bw, 170); ctx.globalAlpha = 1;   // keeps it readable over the scene
+  text(name, CX, y, P ? 60 : 54, C.ink, { w: 700, a, glow: 18 });
+  text(sub, CX, y + (P ? 56 : 50), P ? 28 : 26, C.cyan, { a: a * seg(t, a0 + .15, a0 + .45) });
+}
+function hud(t) {
+  const a = seg(t, 4.1, 4.4) * (1 - seg(t, 21.9, 22.0));
+  if (a <= 0) return;
+  const x = P ? 60 : 64, y = P ? 170 : 72, v = swAt(t);
+  ctx.globalAlpha = a; ctx.strokeStyle = C.ink; ctx.lineWidth = 3.5;
+  ctx.beginPath(); ctx.arc(x + 22, y + 2, 20, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 22, y + 2); const ang = v * 6 - Math.PI / 2; ctx.lineTo(x + 22 + 13 * Math.cos(ang), y + 2 + 13 * Math.sin(ang)); ctx.stroke();
+  ctx.fillStyle = C.ink; ctx.fillRect(x + 17, y - 26, 10, 6); ctx.globalAlpha = 1;
+  text(`${v.toFixed(3)} s`, x + 60, y + 2, P ? 46 : 44, C.ink, { w: 700, align: 'left', a });
+  text('example timings', x, y + 48, 20, C.muted, { align: 'left', a });
+  if (t > T_FIRST) chip('first token  0.42 s', x + (P ? 420 : 440), y + 2, 22, C.amber, { ink: C.amber, a: a * seg(t, T_FIRST, T_FIRST + .1), scale: eOB(seg(t, T_FIRST, T_FIRST + .3)), lit: 1 - seg(t, 16.2, 17) });
+}
+
+/* ---------- timeline: one slot per stage along the bottom; the current one fills, finished ones keep their (example) time ---------- */
+const TL_STAGES = [['network', 4, 6], ['gateway', 6, 8], ['tokens', 8, 10], ['router', 10, 12], ['queue', 12, 14], ['prefill', 14, T_FIRST], ['decode', T_FIRST, T_EOS]];
+const TL = P ? { x: 60, w: 900, y: 1580, s: 19 } : { x: 210, w: 1500, y: H - 72, s: 22 };   // vertical: above the bottom 15%
+const fmt = v => v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`;
+function timeline(t) {
+  const a = seg(t, 4.1, 4.4) * (1 - seg(t, 21.9, 22.0));
+  if (a <= 0) return;
+  const gap = 8, sw = (TL.w - gap * (TL_STAGES.length - 1)) / TL_STAGES.length;
+  TL_STAGES.forEach(([name, s0, s1], i) => {
+    const x = TL.x + i * (sw + gap), cur = t >= s0 && t < s1, done = t >= s1, u = seg(t, s0, s1);
+    ctx.globalAlpha = a; rr(x, TL.y - 5, sw, 10, 5); ctx.fillStyle = '#16233D'; ctx.fill();
+    if (u > 0) { rr(x, TL.y - 5, sw * u, 10, 5); ctx.fillStyle = STAGES[i][2]; if (cur) glow(STAGES[i][2], 14); ctx.fill(); noGlow(); }
+    ctx.globalAlpha = 1;
+    text(name, x + sw / 2, TL.y - TL.s - (cur ? 10 : 4), cur ? TL.s * 1.35 : TL.s, cur ? C.ink : done ? STAGES[i][2] : C.muted, { w: cur ? 700 : 400, a: a * (cur || done ? 1 : .7), glow: cur ? 10 : 0 });
+    if (u > 0) text(fmt(swAt(Math.min(t, s1)) - swAt(s0)), x + sw / 2, TL.y + TL.s + 6, TL.s - 2, C.muted, { a: a * Math.min(1, u * 4) });
+  });
+}
+
+/* ---------- 3D (?3d): the journey from the send to the end of decode is drawn by world3d.js; this canvas stays on top ---------- */
+const THREED = /[?&]3d/.test(location.search);
+let world = null;
+if (THREED) {
+  Object.assign(window, { C, P, W, H, PROMPT, TOKENS, OUT, TOKCOL, T_DEC, STEP, step, seg, lerp, clamp, bump, eOC, eIn, eIO, eOB, rnd });   // world3d.js reads these
+  world = makeWorld3d(document.getElementById('gl'));
+}
+function fitAll() { fit(); if (world) { world.resize(cv.width, cv.height); const g = document.getElementById('gl'); g.style.width = cv.style.width; g.style.height = cv.style.height; } }
+fitAll();
+
+/* ---------- frame ---------- */
+const FLASH_CUTS = [4, 12, 14, 22, 26];                                // zoom-throughs and the recap; every other cut is seamless
+function seek(t) {
+  REAL = t; t = clamp(storyAt(t), 0, DURATION - 1e-6);  // real seconds -> story seconds
+  const cut = FLASH_CUTS.filter(c => c <= t).at(-1) ?? -9;
+  if (world && t >= 4 && t < T_EOS) {                         // 3D: clear this canvas so the WebGL one shows through
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); ctx.setTransform(PX, 0, 0, PX, 0, 0);
+    world.frame(t);
+  } else {
+    ctx.setTransform(PX, 0, 0, PX, 0, 0);
+    background(t);
+    const sc = SCENES.find(s => t >= s.a && t < s.b) || SCENES.at(-1);
+    const cam = sc.cam(t), punch = 1 + .07 * Math.exp(-(t - cut) * 9);
+    camS = cam.s * punch;
+    ctx.save(); ctx.translate(CX, CY); ctx.scale(camS, camS); ctx.translate(-cam.x, -cam.y);
+    sc.draw(t);
+    ctx.restore(); camS = 1;
+  }
+  hud(t);
+  stageTitle(t);
+  timeline(t);
+  const flash = .28 * Math.exp(-(t - cut) * 16);                     // a quick flash on each cut
+  if (flash > .005) { ctx.fillStyle = '#DFF8FF'; ctx.globalAlpha = flash; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  const fadeIn = 1 - seg(t, 0, .3), fadeOut = seg(t, DURATION - .6, DURATION);
+  if (fadeIn + fadeOut > 0) { ctx.fillStyle = C.bg; ctx.globalAlpha = Math.max(fadeIn, fadeOut); ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+window.DURATION = realAt(DURATION); window.realAt = realAt; window.seek = seek; window.__ready = true;
+
+/* ---------- preview controls (not used in capture) ---------- */
+if (!CAPTURE) {
+  const scrub = document.getElementById('scrub'), btn = document.getElementById('play'), tm = document.getElementById('time');
+  const LEN = realAt(DURATION); scrub.max = LEN; let playing = true, t0 = performance.now(), at = 0;
+  const show = t => { seek(t); scrub.value = t; tm.textContent = `${t.toFixed(1)} / ${LEN} s`; };
+  btn.onclick = () => { playing = !playing; btn.textContent = playing ? '⏸' : '▶'; t0 = performance.now() - at * 1000; };
+  scrub.oninput = () => { at = +scrub.value; t0 = performance.now() - at * 1000; show(at); };
+  addEventListener('resize', () => { fitAll(); show(at); });
+  (function loop() { if (playing) { at = ((performance.now() - t0) / 1000) % LEN; show(at); } requestAnimationFrame(loop); })();
+}
+</script>
+</body>
+</html>

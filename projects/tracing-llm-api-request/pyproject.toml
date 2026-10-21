@@ -1,0 +1,46 @@
+[project]
+name = "tracing-llm-api-request"
+version = "0.1.0"
+description = "Manim story: tracing one LLM API request from the client to the GPU and back"
+readme = "README.md"
+requires-python = "==3.11.*"
+dependencies = [
+    "manim==0.21.0",
+    "numpy==2.4.6",
+]
+
+[tool.uv]
+package = false
+# Pin every transitive dependency to the exact versions the video is rendered with.
+constraint-dependencies = [
+    "av==18.1.0",
+    "beautifulsoup4==4.15.0",
+    "click==8.5.0",
+    "cloup==4.0.0",
+    "decorator==5.3.1",
+    "glcontext==3.0.0",
+    "isosurfaces==0.1.2",
+    "manimpango==0.6.1",
+    "mapbox-earcut==2.1.0",
+    "markdown-it-py==4.2.0",
+    "mdurl==0.1.2",
+    "moderngl==5.12.0",
+    "moderngl-window==3.1.1",
+    "networkx==3.6.1",
+    "pillow==12.3.0",
+    "pycairo==1.29.1",
+    "pydub==0.25.1",
+    "pyglet==2.1.16",
+    "pyglm==2.8.3",
+    "pygments==2.21.0",
+    "rich==15.0.0",
+    "scipy==1.17.1",
+    "screeninfo==0.8.1",
+    "skia-pathops==0.9.2",
+    "soupsieve==2.10",
+    "srt==3.5.3",
+    "svgelements==1.9.6",
+    "tqdm==4.70.1",
+    "typing-extensions==4.16.0",
+    "watchdog==6.0.0",
+]
