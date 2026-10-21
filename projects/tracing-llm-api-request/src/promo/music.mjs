@@ -1,10 +1,10 @@
-// The promo soundtrack: synthwave, 108 BPM. Big 80s snare, a pulsing octave bass, wide pads, a 16th-note plucked
-// arpeggio and a saw lead, over Am7 - Fmaj7 - Cmaj7 - G7.
+// The promo soundtrack: house, 120 BPM. Four-on-the-floor kick with claps, off-beat open hats, chord stabs, a sub
+// bass and a plucked melody, over Am7 - Fmaj7 - Cmaj7 - G7.
 //
 //   node src/promo/music.mjs --duration 42.83 [--cues JSON] [--out workspace/tmp/music_promo.wav] [--lufs -14]
 //
 //   0-drop        pads and a riser, no drums
-//   drop-stop     the beat; the lead melody joins on the second bar
+//   drop-stop     the beat; the plucked melody joins on the second bar
 //   stop          the stop (<eos>): a hit and a held chord, a lighter kick until the outro
 //   outro-        a hit, the final chord and a few falling plucks under the title card
 //
@@ -40,8 +40,8 @@ function kick(t, g = 1, punch = 1) {
   const i0 = Math.round(t * SR); for (let i = 0; i < .3 * SR && i0 + i < N; i++) DUCK[i0 + i] = Math.max(DUCK[i0 + i], g * Math.exp(-i / SR / .1));
 }
 function noise(t, len, decay, g, hp, pan = 0, send = .2) { let lp = 0; voice(t, len, s => { const n = rnd() * 2 - 1; lp += (n - lp) * hp; return g * (n - lp) * Math.min(1, s / .001) * Math.exp(-s / decay); }, pan, send); }
-const hat = (t, g) => noise(t, .08, .016, g, .4, .25);
-const snare = (t, g) => { noise(t, .35, .12, .45 * g, .1, -.05, .6); let ph = 0; voice(t, .15, s => { ph += 2 * Math.PI * 190 / SR; return g * .35 * Math.sin(ph) * Math.exp(-s / .05); }, 0, .6); };
+const hat = (t, g, open = false) => noise(t, open ? .3 : .08, open ? .09 : .016, g, .4, .25);
+const clap = (t, g) => { for (const d of [0, .012, .024]) noise(t + d, .25, d ? .012 : .08, .22 * g, .1, -.1, .25); };   // three quick bursts
 function saw(t, m, len, g, cut, o = {}) {                  // band-limited saw (additive), its brightness set by `cut`
   const f = hz(m) * (1 + (o.det || 0)), n = Math.max(1, Math.min(40, Math.floor(cut / f)));
   voice(t, len + (o.rel ?? .05) * 4, s => { let v = 0; for (let k = 1; k <= n; k++) v += Math.sin(2 * Math.PI * f * k * s) / k; return g * v * env(s, len, o.att ?? .005, o.rel ?? .05) * (o.pluck ? Math.exp(-s / o.pluck) : 1); }, o.pan || 0, o.send ?? .25, true);
@@ -50,7 +50,7 @@ const sub = (t, m, len, g) => { const f = hz(m); voice(t, len + .1, s => g * Mat
 const pluck = (t, m, g, pan = 0, dec = .12) => saw(t, m, .02, g, 3500, { pluck: dec, rel: .1, pan, send: .45 });
 
 // ---------------------------------------------------------------- the tune
-const BEAT = 60 / 108, BAR = 4 * BEAT;
+const BEAT = 60 / 120, BAR = 4 * BEAT;
 const PROG = [[45, [57, 60, 64, 67]], [41, [57, 60, 64, 65]], [48, [55, 60, 64, 71]], [43, [55, 59, 62, 65]]];   // Am7 Fmaj7 Cmaj7 G7
 const M1 = [
   [[0, 76, .5], [.5, 72, .5], [1, 76, .5], [1.5, 79, 1], [2.5, 76, .5], [3, 72, .5], [3.5, 74, .5]],
@@ -69,13 +69,13 @@ const nBars = Math.floor((STOP - DROP) / BAR);
 for (let b = 0; b < nBars + 1; b++) {
   const t0 = DROP + b * BAR, [root, ch] = PROG[b % 4], mel = (Math.floor(b / 4) % 2 ? M2 : M1)[b % 4], first = b < 4;
   const ev = (beat, fn) => { const t = t0 + beat * BEAT; if (t < STOP - .03) fn(t); };
-  for (const beat of [0, 1, 2, 3]) ev(beat, t => kick(t, .8));
-  ev(1, t => snare(t, .8)); ev(3, t => snare(t, .8));
-  for (let e = 0; e < 8; e++) ev(e / 2, t => hat(t, e % 2 ? .07 : .04));
-  for (let e = 0; e < 8; e++) ev(e / 2, t => saw(t, root - 12 + (e % 2 ? 12 : 0), BEAT * .4, .2, 900));   // pulsing octave bass
-  ev(0, t => ch.forEach((m, k) => saw(t, m, BAR * .98, .035, 2200, { att: .2, rel: .3, det: .004 * (k - 1.5), pan: -.5 + k * .33, send: .6 })));
-  for (let s = 0; s < 16; s++) ev(s / 4, t => pluck(t, ch[[0, 1, 2, 3, 2, 1, 3, 2][s % 8]] + 12, .05, s % 2 ? .4 : -.4, .08));
-  if (b >= 1) for (const [beat, m, len] of mel) ev(beat, t => saw(t, m, len * BEAT * .85, first ? .07 : .09, 3000, { att: .02, rel: .15, pan: .1, send: .5 }));
+  for (const beat of [0, 1, 2, 3]) ev(beat, t => kick(t, .85));
+  ev(1, t => clap(t, .8)); ev(3, t => clap(t, .8));
+  for (const beat of [.5, 1.5, 2.5, 3.5]) ev(beat, t => hat(t, .1, true));   // off-beat open hats
+  for (let e = 0; e < 16; e++) ev(e / 4, t => hat(t, e % 2 ? .04 : .025));
+  for (const beat of [.5, 1.75, 3]) ev(beat, t => ch.forEach((m, k) => saw(t, m, BEAT * .3, .045, 1800, { rel: .06, det: .003 * (k - 1.5), pan: -.3 + k * .2, send: .45 })));   // chord stabs
+  for (const beat of [0, .75, 2, 2.75]) ev(beat, t => sub(t, root - 12, BEAT * .5, .4));
+  if (b >= 1) for (const [beat, m, len] of mel) ev(beat, t => pluck(t, m, first ? .1 : .13, .15, .18));
 }
 // the stop: a hit and a held chord, a lighter kick; then the outro: a hit, the final chord and falling plucks
 kick(STOP, 1); noise(STOP, 1.5, .4, .15, .08, 0, .5);
@@ -95,9 +95,9 @@ function reverb(x, delaysMs, fb) {                         // Schroeder: 4 paral
   return y;
 }
 const wl = reverb(VL, [29.7, 37.1, 41.1, 43.7], .82), wr = reverb(VR, [30.9, 38.3, 42.7, 45.1], .82);
-for (let i = 0; i < N; i++) { const d = 1 - .5 * DUCK[i]; L[i] += d * MUS.L[i] + .12 * wl[i]; R[i] += d * MUS.R[i] + .12 * wr[i]; }   // side-chain: the kick ducks the tonal parts
+for (let i = 0; i < N; i++) { const d = 1 - .55 * DUCK[i]; L[i] += d * MUS.L[i] + .12 * wl[i]; R[i] += d * MUS.R[i] + .12 * wr[i]; }   // side-chain: the kick ducks the tonal parts
 const soften = (x, fc) => { const a = Math.exp(-2 * Math.PI * fc / SR); let z = 0; for (let i = 0; i < N; i++) { z = (1 - a) * x[i] + a * z; x[i] = z; } };
-soften(L, 9000); soften(R, 9000);
+soften(L, 8000); soften(R, 8000);
 let peak = 1e-9;
 for (let i = 0; i < N; i++) { const t = i / SR, f = Math.min(1, (DUR - t) / 2.5) * Math.min(1, t / .05); L[i] = Math.tanh(L[i]) * f; R[i] = Math.tanh(R[i]) * f; peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i])); }
 const pcm = Buffer.alloc(44 + N * 4);

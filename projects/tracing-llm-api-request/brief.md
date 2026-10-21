@@ -39,9 +39,9 @@ A timeline along the bottom shows the stages (gateway, tokenizer, router, queue,
 All at 30 fps, each in 4K with music, 4K silent, and a 1080p copy with music (for X, LinkedIn, Bluesky).
 - **Full video, 16:9**, about 2 minutes.
 - **Short, 9:16**, about 40 seconds: a standalone cut of prefill vs. decode and why the first token takes longest, ending with a pointer to the full video.
-- **Promo, 16:9 only**, 30–45 seconds: a teaser, not an explainer. A hook, a fast montage of the most striking moments (with the stage timeline along the bottom), and a closing title card with the request bouncing from the client to the GPU and back (no call to action: it's for social media). Very little text; synthwave (108 BPM): a pulsing bass, wide pads, an arpeggio and a synth lead. Two versions of the promo: 2D and 3D (`promo3d`), same beats and music. File names put `promo` (or `promo3d`) after the story name, e.g. `tracing-llm-api-request-promo-v1-16x9-4k.mp4`.
+- **Promo, 16:9, plus a 9:16 Short of the 3D version**, 30–45 seconds: a teaser, not an explainer. A hook, a fast montage of the most striking moments (with the stage timeline along the bottom), and a closing title card with the request bouncing from the client to the GPU and back (no call to action: it's for social media). Very little text; house music (120 BPM): four-on-the-floor kick, off-beat hats, chord stabs and a plucked melody. Two versions of the promo: 2D (`promo2d`) and 3D (`promo3d`), same beats and music; the 3D one also as a vertical Short. File names put `promo2d` or `promo3d` after the story name, e.g. `tracing-llm-api-request-promo2d-v1-16x9-4k.mp4`.
 - YouTube publishing guide (`youtube-publishing.md`), with chapters for the full video.
-- YouTube thumbnails: a few designs for the full video and the Short.
+- YouTube thumbnails: a few designs for the full video and the Short, and for the promo (16:9 and its Short).
 
 ## Credit
 End card, small and quiet, away from the right side (YouTube's end-screen buttons). Word for word:

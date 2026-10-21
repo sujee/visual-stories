@@ -8,7 +8,7 @@ Working with a coding agent? The house rules are in [AGENTS.md](../../AGENTS.md)
 
 ▶ Watch the finished story: *(coming soon)*
 
-**Status:** the promo (2D and 3D, 16:9) is approved. The full video and the Short aren't built yet, so render the promo with `ONLY=promo` (below).
+**Status:** the promo (2D and 3D, 16:9, plus a 9:16 Short of the 3D one) is approved. The full video and the Short aren't built yet, so `./render.sh` renders the promos only.
 
 ## Prerequisites
 
@@ -23,16 +23,16 @@ Tested on macOS 26 (Apple silicon).
 ## Run it yourself
 
 ```bash
-ONLY=promo ./render.sh            # final: both promos, 16:9, 4K with music + 4K silent + 1080p with music
-                                  #   -> workspace/preview/<timestamp>/, and hard-linked into workspace/export/
-ONLY=promo ./render.sh draft      # 720p drafts of both promos (with music and silent) -> workspace/preview/<timestamp>/
-ONLY=promo ./render.sh draft v2   # same, named version                               -> workspace/preview/v2/
-ONLY=promo ./render.sh final v2   # final quality, named version                      -> workspace/preview/v2/
-PROMOS=promo3d ONLY=promo ./render.sh draft v2       # just the 3D promo (or PROMOS=promo for just the 2D one)
-PROMO_FORMATS="16x9 9x16" ONLY=promo ./render.sh …   # also the vertical layout (not a deliverable)
+./render.sh            # final: both promos in 16:9 and the 3D one in 9:16, each 4K with music + 4K silent + 1080p with music
+                       #   -> workspace/preview/<timestamp>/, and hard-linked into workspace/export/
+./render.sh draft      # 720p drafts of the same (with music and silent)         -> workspace/preview/<timestamp>/
+./render.sh draft v2   # same, named version                               -> workspace/preview/v2/
+./render.sh final v2   # final quality, named version                      -> workspace/preview/v2/
+PROMOS=promo3d ./render.sh draft v2       # just the 3D promo (or PROMOS=promo2d for just the 2D one)
+PROMO_FORMATS=16x9 ./render.sh …          # skip the vertical Short (PROMO_VERTICAL="promo2d promo3d" makes both vertical)
 ```
 
-Files are named `tracing-llm-api-request-promo-<version>-16x9-4k.mp4` (2D) and `…-promo3d-…` (3D), plus `-silent` and `-1080p` variants. A final 3D render takes a while (software WebGL at 4K).
+Files are named `tracing-llm-api-request-promo2d-<version>-16x9-4k.mp4` (2D) and `…-promo3d-…` (3D), `…-9x16-…` for the Short, plus `-silent` and `-1080p` variants. Every render also writes the YouTube thumbnails to `thumbnails/` (tracked). A final 3D render takes a while (software WebGL at 4K).
 
 To scrub through the promo in a browser, open `src/promo/promo.html` (add `?3d` for the 3D version, `?portrait` for the vertical layout).
 
@@ -43,14 +43,15 @@ To scrub through the promo in a browser, open `src/promo/promo.html` (add `?3d` 
 1. **Edit `brief.md`.** Say what you want, not how. E.g. under *Deliverables*: "Promo music: a calm solo piano."
 2. **Ask for a draft:** *"Update the promo to match the brief and render a draft."* The agent edits `src/` and renders to `workspace/preview/v1/` (then `v2`, `v3`, …).
 3. **Watch it and give notes**, ideally with timestamps: *"0:13: the router shot feels rushed."* The agent applies them and renders the next draft. Repeat until you're happy.
-4. **Approve and render final:** *"v3 is approved, render it at final quality"* (or `ONLY=promo ./render.sh final v3` yourself).
+4. **Approve and render final:** *"v3 is approved, render it at final quality"* (or `./render.sh final v3` yourself).
 
-**Option 2: edit the code directly**, then run `ONLY=promo ./render.sh draft <next version>`:
+**Option 2: edit the code directly**, then run `./render.sh draft <next version>`:
 
 - `src/promo/promo.html`: the promo as a pure function of time (`seek(t)`): content (prompt, tokens, reply, example timings), the 2D scenes, the stopwatch, stage titles and timeline, and the pacing (`PACE`).
 - `src/promo/world3d.js`: the 3D journey (three.js) used by `promo.html?3d`: one place per stage along the camera's path, and the chase camera (`camAt`).
-- `src/promo/music.mjs`: the synthwave soundtrack; its sections follow the promo's cuts (`capture.mjs --print-cues`).
+- `src/promo/music.mjs`: the house soundtrack; its sections follow the promo's cuts (`capture.mjs --print-cues`).
 - `src/promo/capture.mjs`: renders the page to video with Playwright.
+- `src/promo/thumbnails.mjs`: the YouTube thumbnails: headlines over a clean 3D frame (`promo.html?3d&clean`, designs in `DESIGNS`), and `path`, the trip from the client to the GPU with each stage's time.
 
 ## Verification
 

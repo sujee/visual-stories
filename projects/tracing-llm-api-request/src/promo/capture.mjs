@@ -4,7 +4,6 @@
 //   node src/promo/capture.mjs --print-duration                                            (the promo's length in seconds)
 //   node src/promo/capture.mjs --print-cues                                                (music cue times, JSON)
 //   node src/promo/capture.mjs --out frame.png --width 1920 --height 1080 --at 12.5|end [--portrait] [--3d]   (one frame; `end` = the last 0.1 s)
-//                                                                  (one frame; `end` = the last 0.1 s of the story; --still drops the confetti)
 //
 // Deterministic: promo.html is a pure function of time (window.seek(t)); nothing is fetched at render time.
 // Set CHROME_PATH to use a system Chrome instead of Playwright's bundled Chromium.
@@ -32,6 +31,8 @@ const url = pathToFileURL(join(here, 'promo.html')).href + '?capture' + (PORTRAI
 
 let TMP_DIR = null;                                             // chunk folder, removed on every exit path
 const cleanup = () => { if (TMP_DIR) try { rmSync(TMP_DIR, { recursive: true, force: true }); } catch {} };
+const KIDS = [];                                                // the chunk ffmpegs, stopped if the capture fails
+const fail = async () => { KIDS.forEach(k => k.kill()); await browser.close().catch(() => {}); cleanup(); process.exit(1); };
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH || undefined,
   args: ['--force-color-profile=srgb', '--hide-scrollbars', '--font-render-hinting=none', ...(THREED ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : [])],
@@ -39,7 +40,7 @@ const browser = await chromium.launch({
 async function openPage() {
   const ctx = await browser.newContext({ viewport: { width: vw, height: vh }, deviceScaleFactor: dsf, colorScheme: 'light', reducedMotion: 'no-preference' });
   const page = await ctx.newPage();
-  page.on('pageerror', e => { console.error('page error:', e.message); cleanup(); process.exit(1); });
+  page.on('pageerror', e => { console.error('page error:', e.message); fail(); });
   await page.goto(url);
   await page.waitForFunction(() => window.__ready === true);
   return page;
@@ -81,6 +82,7 @@ for (let k = 0; k < WORKERS; k++) {
     const page = k === 0 ? first : await openPage();
     const ff = spawn('ffmpeg', ['-v', 'error', '-y', '-f', 'image2pipe', '-c:v', 'png', '-framerate', String(FPS), '-i', '-',
       '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '8', '-pix_fmt', 'yuv420p', file], { stdio: ['pipe', 'inherit', 'inherit'] });
+    KIDS.push(ff);
     const done = new Promise((res, rej) => { ff.on('exit', c => c === 0 ? res() : rej(new Error('ffmpeg chunk failed'))); });
     ff.stdin.on('error', () => {});                              // a dead ffmpeg is reported through `done`, not as an unhandled EPIPE
     for (let i = a; i < b; i++) {
@@ -95,11 +97,11 @@ for (let k = 0; k < WORKERS; k++) {
 }
 let files;
 try { files = await Promise.all(jobs); }
-catch (e) { console.error('capture failed:', e.message); await browser.close().catch(() => {}); cleanup(); process.exit(1); }
+catch (e) { console.error('capture failed:', e.message); await fail(); }
 await browser.close();
 
 const list = join(tmp, 'list.txt');
-writeFileSync(list, files.map(f => `file '${f}'`).join('\n'));
+writeFileSync(list, files.map(f => `file '${f.replaceAll("'", "'\\''")}'`).join('\n'));
 await new Promise((res, rej) => spawn('ffmpeg', ['-v', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', out], { stdio: 'inherit' })
   .on('exit', c => c === 0 ? res() : rej(new Error('concat failed'))));
 cleanup();

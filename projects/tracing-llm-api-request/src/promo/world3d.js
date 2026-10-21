@@ -1,4 +1,4 @@
-/* The 3D journey for promo3d.html: from the send to the end of decode (story time 4..22), seen by a chase camera.
+/* The 3D journey for promo3d (promo.html?3d): from the send to the end of decode (story time 4..22), seen by a chase camera.
    Uses the page's shared constants and helpers (C, P, W, H, TOKENS, OUT, TOKCOL, T_DEC, STEP, step, seg, lerp, easings, rnd)
    and window.THREE (node_modules/three, a classic script). The world is laid out along -z, one place per stage:
      network tunnel z 10..-95 · gateway z -100 · tokenizer z -160 · router, replicas at z -200

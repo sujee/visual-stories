@@ -37,7 +37,7 @@ const CAPTURE = document.documentElement.classList.contains('capture');
 const P = /[?&]portrait/.test(location.search);
 const W = P ? 1080 : 1920, H = P ? 1920 : 1080;
 const CX = P ? 510 : 960, CY = P ? 860 : 540;          // centre of the safe area
-const DURATION = 31, BEAT = 0.5;                         // story seconds; BEAT: the music's 120 BPM, in real seconds
+const DURATION = 31, BEAT = 60 / 120;                    // story seconds; BEAT: the music's 120 BPM (music.mjs), in real seconds
 // Pacing: real seconds per story second, [story s, rate], linear in between (smooth speed changes). Everything plays
 // 1.25x slower than the story timings below; the router, the batch, prefill and the start of decode play 1.65x slower.
 const PACE = [[0, 1.25], [9.4, 1.25], [10.4, 1.65], [19.6, 1.65], [20.6, 1.25]];
@@ -141,7 +141,7 @@ const TOKCOL = [C.cyan, '#5FD0FF', '#7FB8FF', C.violet, '#C08CFF', C.pink];
 const LINES = Array.from({ length: 48 }, () => ({ y: rnd() * H, len: 80 + rnd() * 320, v: 1500 + rnd() * 2200, o: rnd() * 6000, a: .12 + rnd() * .4, c: rnd() < .7 ? C.cyan : C.violet }));
 function background(t) {
   ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
-  const beat = (t >= 4 && t < 26) ? Math.exp(-((REAL % BEAT)) * 7) : 0;
+  const beat = (t >= 4 && t < 26) ? Math.exp(-((REAL - realAt(4)) % BEAT) * 7) : 0;
   const drift = t < 4 || t >= 6 ? t * 14 : 4 * 14 + (t - 4) * 900;     // the grid races past while the packet flies
   ctx.fillStyle = C.grid; ctx.globalAlpha = .55 + .35 * beat;
   const sp = 64, ox = -(drift % sp), oy = (t * 6) % sp;
@@ -452,7 +452,7 @@ scene(22, 26, t => {
   text('example timings', CX, BAR.y + 110, 22, C.muted, { a: seg(t, 24.7, 25) });
 }, t => ({ x: CX, y: CY, s: lerp(1.15, 1, eOC(seg(t, 22, 22.5))) }));
 
-// 9 · card: the title and a pointer to the full video
+// 9 · card: the title, and the request bouncing from the client to the GPU and back
 scene(26, DURATION, t => {
   const a = eOC(seg(t, 26.1, 26.7)), ty = CY - (P ? 200 : 120);
   const title = P ? ['Tracing an', 'LLM API Request'] : ['Tracing an LLM API Request'], ts = P ? 90 : 88;
@@ -483,7 +483,7 @@ scene(26, DURATION, t => {
 // the stage title, big and centred at the top: [from, to (story s), name, what happens there]
 const TITLES = [[4, 6, 'request', 'HTTPS POST to the API'], [6, 8, 'gateway', 'auth + rate limits'], [8, 10, 'tokenizer', 'text → tokens'],
   [10, 12, 'router', 'sends it where its prompt is cached'], [12, 14, 'queue', 'batched with other requests on one GPU'],
-  [14, T_DEC, 'prefill on the GPU', 'the whole prompt at once'], [T_DEC, T_EOS, 'decode on the GPU', 'one token at a time, streamed back']];
+  [14, T_FIRST, 'prefill on the GPU', 'the whole prompt at once'], [T_FIRST, T_EOS, 'decode on the GPU', 'one token at a time, streamed back']];
 function stageTitle(t) {
   const st = TITLES.find(([a, b]) => t >= a && t < b);
   if (!st) return;
@@ -527,6 +527,7 @@ function timeline(t) {
 
 /* ---------- 3D (?3d): the journey from the send to the end of decode is drawn by world3d.js; this canvas stays on top ---------- */
 const THREED = /[?&]3d/.test(location.search);
+const CLEAN = /[?&]clean/.test(location.search);            // no stopwatch, stage title or timeline (thumbnail backgrounds)
 let world = null;
 if (THREED) {
   Object.assign(window, { C, P, W, H, PROMPT, TOKENS, OUT, TOKCOL, T_DEC, STEP, step, seg, lerp, clamp, bump, eOC, eIn, eIO, eOB, rnd });   // world3d.js reads these
@@ -553,14 +554,13 @@ function seek(t) {
     sc.draw(t);
     ctx.restore(); camS = 1;
   }
-  hud(t);
-  stageTitle(t);
-  timeline(t);
+  if (!CLEAN) { hud(t); stageTitle(t); timeline(t); }
   const flash = .28 * Math.exp(-(t - cut) * 16);                     // a quick flash on each cut
   if (flash > .005) { ctx.fillStyle = '#DFF8FF'; ctx.globalAlpha = flash; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
   const fadeIn = 1 - seg(t, 0, .3), fadeOut = seg(t, DURATION - .6, DURATION);
   if (fadeIn + fadeOut > 0) { ctx.fillStyle = C.bg; ctx.globalAlpha = Math.max(fadeIn, fadeOut); ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
 }
+window.STAGE_TIMES = TL_STAGES.map(([name], i) => [name, STAGES[i][1], STAGES[i][2]]); window.TOTAL = SW.at(-1)[1];   // for thumbnails.mjs
 window.DURATION = realAt(DURATION); window.realAt = realAt; window.seek = seek; window.__ready = true;
 
 /* ---------- preview controls (not used in capture) ---------- */
