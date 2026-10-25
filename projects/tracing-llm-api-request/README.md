@@ -2,7 +2,7 @@
 
 Follow one LLM API request from your code to the GPU and back, and see where the time goes.
 
-The intent (what it teaches, for whom, and what must come across) is in [brief.md](brief.md). The approved implementation is in `src/`.
+The intent (what it teaches, for whom, and what must come across) is in [brief.md](brief.md) (full video) and [brief-teaser.md](brief-teaser.md) (the approved teaser/promos). The approved implementation is in `src/`.
 
 Working with a coding agent? The house rules are in [AGENTS.md](../../AGENTS.md) at the repository root: read it first.
 
@@ -40,7 +40,7 @@ To scrub through the promo in a browser, open `src/promo/promo.html` (add `?3d` 
 
 **Option 1: with a coding agent** (Claude Code, Codex, OpenCode, …), started in this directory:
 
-1. **Edit `brief.md`.** Say what you want, not how. E.g. under *Deliverables*: "Promo music: a calm solo piano."
+1. **Edit `brief.md`** (or `brief-teaser.md` for the promos). Say what you want, not how. E.g. under *Deliverables*: "Promo music: a calm solo piano."
 2. **Ask for a draft:** *"Update the promo to match the brief and render a draft."* The agent edits `src/` and renders to `workspace/preview/v1/` (then `v2`, `v3`, …).
 3. **Watch it and give notes**, ideally with timestamps: *"0:13: the router shot feels rushed."* The agent applies them and renders the next draft. Repeat until you're happy.
 4. **Approve and render final:** *"v3 is approved, render it at final quality"* (or `./render.sh final v3` yourself).
