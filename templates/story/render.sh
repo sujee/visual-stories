@@ -69,6 +69,8 @@ render_publishing
 if [[ $QUALITY == final ]]; then   # a final render exports its deliverables (see AGENTS.md): same names, hard links (copy as a fallback)
   mkdir -p workspace/export
   for f in "$OUT"/*; do ln -f "$f" "workspace/export/$(basename "$f")" 2>/dev/null || cp -f "$f" workspace/export/; done
+  mkdir -p workspace/export/thumbnails   # the thumbnails go with them
+  for f in thumbnails/*.png; do [[ -e $f ]] && { ln -f "$f" "workspace/export/thumbnails/$(basename "$f")" 2>/dev/null || cp -f "$f" workspace/export/thumbnails/; }; done
 fi
 
 ln -sfn "$VER" workspace/preview/latest

@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tracing an LLM API Request</title>
+<style>
+@font-face{font-family:JBM;font-weight:400;src:url(../../assets/fonts/JetBrainsMono-Regular.ttf) format("truetype")}
+@font-face{font-family:JBM;font-weight:700;src:url(../../assets/fonts/JetBrainsMono-Bold.ttf) format("truetype")}
+:root{--bg:#060A13;--ink:#E8EEF9;--muted:#7484A6}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:JBM,ui-monospace,monospace}
+#wrap{position:relative;width:fit-content;margin:0 auto}
+#stage{display:block;position:relative;z-index:1;max-width:100vw;max-height:calc(100vh - 60px)}
+#gl{position:absolute;left:0;top:0}
+#bar{display:flex;gap:12px;align-items:center;max-width:900px;margin:8px auto;padding:0 16px}
+#bar button{font:inherit;padding:6px 14px;border-radius:999px;border:1px solid var(--muted);background:#0D1628;color:var(--ink);cursor:pointer}
+#bar input{flex:1}
+#time{min-width:110px;text-align:right;color:var(--muted)}
+html.capture,html.capture body{overflow:hidden}
+html.capture #bar{display:none}
+html.capture #stage,html.capture #gl{width:100vw;height:100vh;max-height:none}
+</style>
+<script>if(/[?&]capture/.test(location.search))document.documentElement.classList.add('capture')</script>
+<script src="../../node_modules/three/build/three.min.js"></script>
+<script src="../shared/world3d.js"></script>
+</head>
+<body>
+<div id="wrap"><canvas id="gl"></canvas><canvas id="stage" aria-label="Tracing an LLM API request: one request travels from a chat box through the gateway, tokenizer, router, a batched GPU, prefill and decode, with explainers for prompt caching, continuous batching, the KV cache, speculative decoding, prefill/decode disaggregation and streaming."></canvas></div>
+<div id="bar"><button id="play">⏸</button><input id="scrub" type="range" min="0" step="0.01" value="0"><span id="time"></span></div>
+<script type="module">
+await Promise.all([document.fonts.load('400 40px JBM'), document.fonts.load('700 40px JBM')]);
+/* The full video, a pure function of time: seek(r) draws the frame at r real seconds. 3D and 2D combined:
+   the journey (hook → prefill → decode) is the promo's 3D world (../shared/world3d.js, driven by the story time `jt(r)`),
+   and the concept explainers (prompt caching in blocks, continuous batching, KV cache, speculative decoding, disaggregation, streaming) pause the journey for 2D diagrams.
+   Landscape 16:9 only. All timings, token counts and ids are examples. */
+const CAPTURE = document.documentElement.classList.contains('capture');
+const P = false, W = 1920, H = 1080, CX = 960, CY = 540;
+
+/* ---------- the timeline: chapters in real seconds ---------- */
+const CH = { hook: [0, 7], net: [7, 11], gate: [11, 18], tok: [18, 25], route: [25, 34], blocks: [34, 62], queue: [62, 71], batch: [71, 89],
+  prefill: [89, 98], kv: [98, 132], dec1: [132, 144], spec: [144, 175], disagg: [175, 207], dec2: [207, 214], stream: [214, 228],
+  recap: [228, 244], end: [244, 251] };
+const DURATION = CH.end[1];
+// the journey's story time (the promo's clock: 4 send ... 14 prefill, 17 decode, 22 stop) at real seconds: [r0, r1, s0, s1]
+const JMAP = [[...CH.net, 4, 6], [...CH.gate, 6, 8], [...CH.tok, 8, 10], [...CH.route, 10, 12], [...CH.queue, 12, 14],
+  [...CH.prefill, 14, 16.5], [...CH.dec1, 16.5, 20], [...CH.dec2, 20, 22]];
+const jt = r => { const m = JMAP.find(([a, b]) => r >= a && r < b); return m ? m[2] + (m[3] - m[2]) * (r - m[0]) / (m[1] - m[0]) : null; };
+const JOURNEY = [[CH.net[0], CH.route[1]], CH.queue, CH.prefill, CH.dec1, CH.dec2];             // where the stopwatch, stage title and timeline show
+
+const C = { bg: '#060A13', panel: '#0D1628', grid: '#1B2B4B', dim: '#2A3A5E', cyan: '#3BE4FF', violet: '#A08CFF',
+  amber: '#FFB547', green: '#41E88F', red: '#FF5A76', pink: '#FF7AD9', ink: '#E8EEF9', muted: '#7C8CAE' };
+
+/* ---------- helpers ---------- */
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, u) => a + (b - a) * u;
+const eOC = u => 1 - (1 - u) ** 3, eIn = u => u * u * u, eIO = u => u < .5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2;
+const eOB = u => { const c = 1.9; return 1 + (c + 1) * (u - 1) ** 3 + c * (u - 1) ** 2; };
+const bump = (t, a, b) => (t < a || t > b) ? 0 : Math.sin(Math.PI * (t - a) / (b - a));
+let seed = 11;
+const rnd = () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+const cv = document.getElementById('stage'), ctx = cv.getContext('2d');
+let PX = 1, GA = 1;                                       // device px per logical px; a scene-wide alpha (cross-fades inside a scene)
+function fit() {
+  const dpr = window.devicePixelRatio || 1;
+  let cw = innerWidth, ch = innerHeight;
+  if (!CAPTURE) { ch -= 60; if (cw / ch > W / H) cw = ch * W / H; else ch = cw * H / W; cv.style.width = cw + 'px'; cv.style.height = ch + 'px'; }
+  cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr); PX = cv.width / W;
+}
+fit();
+const font = (size, w = 400) => { ctx.font = `${w} ${size}px JBM`; };
+const glow = (color, b) => { ctx.shadowColor = color; ctx.shadowBlur = b * PX; };
+const noGlow = () => { ctx.shadowBlur = 0; };
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
+function text(s, x, y, size, color, o = {}) {
+  font(size, o.w || 400); ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'middle';
+  ctx.globalAlpha = (o.a ?? 1) * GA; ctx.fillStyle = color;
+  if (o.glow) glow(color, o.glow);
+  ctx.fillText(s, x, y); noGlow(); ctx.globalAlpha = 1;
+}
+const tw = (s, size, w = 400) => { font(size, w); return ctx.measureText(s).width; };
+function blob(x, y, r, color, a) {                        // soft additive light
+  if (a <= 0) return;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, color); g.addColorStop(1, 'transparent');
+  ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = a * GA; ctx.fillStyle = g;
+  ctx.fillRect(x - r, y - r, 2 * r, 2 * r); ctx.restore();
+}
+function packet(x, y, r, color = C.cyan, a = 1) {
+  blob(x, y, r * 6, color, .45 * a);
+  ctx.globalAlpha = a * GA; glow(color, 24);
+  ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = '#F4FDFF'; ctx.fill();
+  ctx.lineWidth = r * .35; ctx.strokeStyle = color; ctx.stroke(); noGlow(); ctx.globalAlpha = 1;
+}
+function trail(x, y, len, r, color, a = 1) {              // comet tail to the left of (x, y)
+  const g = ctx.createLinearGradient(x - len, y, x, y);
+  g.addColorStop(0, 'transparent'); g.addColorStop(1, color);
+  ctx.globalAlpha = .7 * a * GA; ctx.fillStyle = g;
+  ctx.beginPath(); ctx.moveTo(x - len, y); ctx.lineTo(x, y - r); ctx.lineTo(x, y + r); ctx.fill(); ctx.globalAlpha = 1;
+}
+function ring(x, y, u, rMax, color, w = 4) {              // a burst ring, u 0..1
+  if (u <= 0 || u >= 1) return;
+  ctx.globalAlpha = (1 - u) * GA; ctx.lineWidth = w * (1 - u) + 1; ctx.strokeStyle = color; glow(color, 16);
+  ctx.beginPath(); ctx.arc(x, y, rMax * eOC(u), 0, 7); ctx.stroke(); noGlow(); ctx.globalAlpha = 1;
+}
+function chip(s, x, y, size, color, o = {}) {             // a rounded token chip centred at (x, y); returns its width
+  const w = tw(s, size, 700) + size * .8, h = size * 1.5, sc = o.scale ?? 1, a = o.a ?? 1;
+  if (a <= 0) return w;
+  ctx.save(); ctx.translate(x, y); ctx.scale(sc, sc); ctx.globalAlpha = a * GA;
+  rr(-w / 2, -h / 2, w, h, h * .28);
+  ctx.fillStyle = o.fill || C.panel; if (o.lit) glow(color, 22 * o.lit); ctx.fill(); noGlow();
+  ctx.lineWidth = 2.5; ctx.strokeStyle = color;
+  if (o.dash) ctx.setLineDash([8, 7]);
+  ctx.stroke(); ctx.setLineDash([]);
+  ctx.restore(); ctx.globalAlpha = 1;
+  text(s, x, y + 1, size * sc, o.ink || C.ink, { w: 700, a });
+  return w;
+}
+function box(x, y, w, h, fill, stroke, o = {}) {          // a filled rounded rect, top-left corner at (x, y)
+  ctx.globalAlpha = (o.a ?? 1) * GA; rr(x, y, w, h, o.r ?? 8);
+  if (fill) { ctx.fillStyle = fill; if (o.glow) glow(o.glowColor || stroke || fill, o.glow); ctx.fill(); noGlow(); }
+  if (stroke) { ctx.lineWidth = o.lw ?? 2.5; ctx.strokeStyle = stroke; if (o.dash) ctx.setLineDash(o.dash); ctx.stroke(); ctx.setLineDash([]); }
+  ctx.globalAlpha = 1;
+}
+function line(x0, y0, x1, y1, color, w = 3, a = 1, dash = null) {
+  ctx.globalAlpha = a * GA; ctx.strokeStyle = color; ctx.lineWidth = w; if (dash) ctx.setLineDash(dash);
+  ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+}
+function gpuIcon(x, y, s, color, lit = 0, a = 1) {        // a small GPU chip: square with pins, centred at (x, y)
+  ctx.globalAlpha = a * GA; ctx.lineWidth = 3; ctx.strokeStyle = lit > .05 ? color : C.dim;
+  rr(x - s / 2, y - s / 2, s, s, 10); ctx.fillStyle = C.panel; if (lit > .05) glow(color, 26 * lit); ctx.fill(); noGlow(); ctx.stroke();
+  for (let k = -1; k <= 1; k++) for (const [ax, ay, bx, by] of [[x + k * s * .26, y - s / 2, x + k * s * .26, y - s / 2 - 9], [x + k * s * .26, y + s / 2, x + k * s * .26, y + s / 2 + 9], [x - s / 2, y + k * s * .26, x - s / 2 - 9, y + k * s * .26], [x + s / 2, y + k * s * .26, x + s / 2 + 9, y + k * s * .26]]) { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); }
+  if (lit > .05) { ctx.fillStyle = color; ctx.globalAlpha = a * GA * (.25 + .5 * lit); rr(x - s * .22, y - s * .22, s * .44, s * .44, 6); ctx.fill(); }
+  ctx.globalAlpha = 1;
+}
+function gauge(x, y, w, label, v, color, a = 1) {         // a labelled horizontal bar
+  text(label, x, y, 20, C.muted, { align: 'left', a });
+  box(x + 150, y - 8, w, 16, '#111C30', null, { a, r: 8 });
+  if (v > 0) box(x + 150, y - 8, w * v, 16, color, null, { a, r: 8, glow: 10 });
+}
+
+/* ---------- content (illustrative) ---------- */
+const PROMPT = 'Why is the sky blue?';
+const TOKENS = [['Why', 10445], ['is', 382], ['the', 290], ['sky', 13181], ['blue', 9861], ['?', 30]];
+const OUT = ['Sunlight', 'scatters', 'off', 'air', 'molecules,', 'and', 'blue', 'light', 'scatters', 'the', 'most,',
+  'so', 'the', 'whole', 'sky', 'looks', 'blue', 'to', 'you', '.'];
+const T_FIRST = 16.0, T_DEC = 17.0, STEP = 0.25, T_EOS = 22.0;   // story seconds: first token, decode start, one token per step, stop
+const SW = [[4, 0], [6, .030], [8, .045], [10, .048], [12, .055], [14, .180], [16, .420], [22, 2.140]];   // stopwatch (s of the request's life) at story times
+const STAGES = [['network', .030, C.muted], ['gateway', .015, C.green], ['tokenize', .003, C.violet], ['route', .007, C.pink],
+  ['queue', .125, C.amber], ['prefill', .240, C.cyan], ['decode', 1.720, C.violet]];
+const swAt = t => { if (t <= SW[0][0]) return 0; for (let i = 1; i < SW.length; i++) if (t <= SW[i][0]) { const [a, va] = SW[i - 1], [b, vb] = SW[i]; return lerp(va, vb, (t - a) / (b - a)); } return SW.at(-1)[1]; };
+const TOKCOL = [C.cyan, '#5FD0FF', '#7FB8FF', C.violet, '#C08CFF', C.pink];
+const step = t => Math.min(OUT.length - 1, Math.floor((t - T_DEC) / STEP) + 1);   // index of the newest output token (world3d.js)
+
+/* ---------- 2D chrome ---------- */
+function background(r) {
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = C.grid; ctx.globalAlpha = .55;
+  const sp = 64, ox = -((r * 14) % sp), oy = (r * 6) % sp;
+  for (let x = ox; x < W + sp; x += sp) for (let y = oy - sp; y < H + sp; y += sp) ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+  ctx.globalAlpha = 1;
+  const v = ctx.createRadialGradient(W / 2, H / 2, H * .3, W / 2, H / 2, W * .75);
+  v.addColorStop(0, 'transparent'); v.addColorStop(1, 'rgba(0,0,0,.75)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+function heading(u, name, sub) {                          // the explainer's title, top centre
+  const a = eOC(seg(u, .1, .6)), y = 84 + 12 * (1 - a);
+  const bw = Math.max(tw(name, 54, 700), tw(sub, 26)) + 120;
+  const g = ctx.createLinearGradient(0, y - 60, 0, y + 90); g.addColorStop(0, 'rgba(6,10,19,0)'); g.addColorStop(.3, 'rgba(6,10,19,.75)'); g.addColorStop(.8, 'rgba(6,10,19,.75)'); g.addColorStop(1, 'rgba(6,10,19,0)');
+  ctx.globalAlpha = a; ctx.fillStyle = g; ctx.fillRect(CX - bw / 2, y - 60, bw, 150); ctx.globalAlpha = 1;
+  text(name, CX, y, 54, C.ink, { w: 700, a, glow: 18 });
+  text(sub, CX, y + 54, 26, C.cyan, { a: a * seg(u, .3, .8) });
+}
+// captions: [from, to, text, color?] in the scene's (or the video's) seconds; '\n' starts a second line
+function caption(u, items, y = H - 120) {
+  for (const [a, b, s, col] of items) {
+    const al = seg(u, a, a + .35) * (1 - seg(u, b - .35, b)); if (al <= 0) continue;
+    const lines = s.split('\n'), sz = 32, lh = 44, bw = Math.max(...lines.map(l => tw(l, sz))) + 90, bh = lines.length * lh + 22;
+    box(CX - bw / 2, y - lh / 2 - 8, bw, bh, 'rgba(6,10,19,.72)', null, { a: al, r: 18 });
+    lines.forEach((l, i) => text(l, CX, y + i * lh + 2 * (1 - al), sz, col || C.ink, { a: al }));
+  }
+}
+const sub = (u, a, b, fadeOut = true) => { GA = seg(u, a, a + .5) * (fadeOut ? 1 - seg(u, b - .5, b) : 1); return GA > .005; };   // a cross-faded part of a scene
+
+/* ---------- 0 · hook: the question, the prompt is typed and sent (the same opening as the promo) ---------- */
+const BOX = { w: 1000, h: 120 }; BOX.x = CX - BOX.w / 2; BOX.y = CY + 60;
+const BTN = { x: BOX.x + BOX.w - BOX.h / 2, y: BOX.y + BOX.h / 2, r: BOX.h / 2 - 14 };
+const pk0 = t => ({ x: BTN.x, y: BTN.y - 8 * Math.sin(t * 3) * seg(t, 2.3, 2.8) });
+function hook(r) {                                        // t: the promo's opening clock, 0..4, stretched over 7 real seconds
+  const t = r * 4 / 7, fade = 1 - seg(t, 3.3, 3.8);
+  ctx.globalAlpha = fade;
+  rr(BOX.x, BOX.y, BOX.w, BOX.h, BOX.h / 2); ctx.fillStyle = C.panel; glow(C.cyan, 10 + 20 * bump(t, 1.9, 2.4)); ctx.fill(); noGlow();
+  ctx.lineWidth = 2; ctx.strokeStyle = C.dim; ctx.stroke(); ctx.globalAlpha = 1;
+  const n = Math.floor(seg(t, .35, 1.55) * PROMPT.length + .001), typed = PROMPT.slice(0, n);
+  const k = eIO(seg(t, 2.0, 2.3)), sz = 44;
+  text(typed, BOX.x + 56 + k * (BOX.w - 240), BOX.y + BOX.h / 2, sz, C.ink, { align: 'left', a: (1 - k) * fade });
+  if (t < 2 && (n < PROMPT.length || Math.floor(t * 2.4) % 2 === 0)) {
+    ctx.fillStyle = C.cyan; ctx.globalAlpha = fade;
+    ctx.fillRect(BOX.x + 60 + tw(typed, sz), BOX.y + BOX.h / 2 - sz * .55, 4, sz * 1.1); ctx.globalAlpha = 1;
+  }
+  const ready = seg(t, 1.5, 1.6), press = 1 - .18 * bump(t, 1.9, 2.15);
+  ctx.save(); ctx.translate(BTN.x, BTN.y); ctx.scale(press, press); ctx.globalAlpha = fade;
+  ctx.beginPath(); ctx.arc(0, 0, BTN.r, 0, 7); ctx.fillStyle = ready > 0 ? C.cyan : C.dim; if (ready) glow(C.cyan, 18); ctx.fill(); noGlow();
+  ctx.strokeStyle = C.bg; ctx.lineWidth = 6; ctx.lineCap = 'round'; ctx.beginPath();
+  ctx.moveTo(0, 14); ctx.lineTo(0, -14); ctx.moveTo(-12, -2); ctx.lineTo(0, -14); ctx.lineTo(12, -2); ctx.stroke(); ctx.restore(); ctx.globalAlpha = 1;
+  ring(BTN.x, BTN.y, seg(t, 2.0, 2.5), 160, C.cyan);
+  if (t > 2.05) { const p = pk0(t); packet(p.x, p.y, 16 * eOB(seg(t, 2.05, 2.4))); }
+  const ask = eOC(seg(t, .1, .5)) * (1 - seg(t, 2.0, 2.25)), ay = CY - 200;
+  ['What happens when we send', 'a request to an LLM?'].forEach((s, i) => text(s, CX, ay + (i - .5) * 80 + 16 * (1 - ask), 62, C.ink, { w: 700, a: ask }));
+  const qa = eOC(seg(t, 2.35, 2.85)) * fade, qy = CY - 170 + 24 * (1 - qa), s1 = "Let's trace this ", x0 = CX - tw(s1 + 'request', 68, 700) / 2;
+  text(s1, x0, qy, 68, C.ink, { w: 700, a: qa, align: 'left' });
+  text('request', x0 + tw(s1, 68, 700), qy, 68, C.cyan, { w: 700, a: qa, align: 'left', glow: 18 });
+}
+const hookCam = r => { const t = r * 4 / 7, p = pk0(t), u = eIO(seg(t, 3.1, 3.8)); return { x: lerp(CX, p.x, u), y: lerp(CY, p.y, u), s: 1 + 5 * eIn(seg(t, 3.2, 4.0)) }; };
+
+/* ---------- the KV cache (2D, 34 s): keys and values; without a cache; with a cache; prompt caching ---------- */
+const GRID = { x0: 560, y0: 280, cw: 54, ch: 46, gap: 6, rows: 6 };
+const cellX = j => GRID.x0 + j * (GRID.cw + GRID.gap), cellY = s => GRID.y0 + s * (GRID.ch + GRID.gap + 0);
+const rowLen = s => 6 + s;                                // history + the new token, for decode step s
+const cum = k => { let n = 0; for (let s = 0; s <= k; s++) n += rowLen(s); return n; };   // cells recomputed with no cache: 6, 13, 21, 30, 40, 51
+function kvScene(u) {
+  heading(u, 'the KV cache', 'keys and values: compute once, reuse every step');
+  // A · every token becomes a key and a value; the next token looks back at all of them
+  if (sub(u, 0, 8)) {
+    const xs = i => CX + (i - 3) * 190, y = 360, words = [...TOKENS.map(t => t[0]), 'next'];
+    words.forEach((w, i) => { const a = seg(u, .3 + i * .12, .6 + i * .12); chip(w, xs(i), y, 38, i < 6 ? TOKCOL[i] : C.violet, { scale: eOB(a), a, dash: i === 6, lit: i === 6 ? bump(u, 4.8, 7.8) : 0 }); });
+    for (let i = 0; i < 6; i++) {
+      const a = eOB(seg(u, 1.6 + i * .25, 2.1 + i * .25));
+      for (const [dx, name, col] of [[-26, 'K', C.amber], [26, 'V', C.cyan]]) {
+        if (a <= 0) continue;
+        ctx.save(); ctx.translate(xs(i) + dx, 480); ctx.scale(a, a); box(-20, -25, 40, 50, col, null, { glow: 12, a: Math.min(1, a) }); ctx.restore();
+        text(name, xs(i) + dx, 481, 26 * a, C.bg, { w: 700, a: Math.min(1, a) });
+      }
+      line(xs(i), y + 36, xs(i) - 26, 452, TOKCOL[i], 2, seg(u, 1.6 + i * .25, 2 + i * .25) * .6);
+      line(xs(i), y + 36, xs(i) + 26, 452, TOKCOL[i], 2, seg(u, 1.6 + i * .25, 2 + i * .25) * .6);
+    }
+    text('K: how a token can be found', xs(0) - 40, 590, 24, C.amber, { align: 'left', a: seg(u, 3.4, 3.9) });
+    text('V: what it passes on', xs(0) - 40, 630, 24, C.cyan, { align: 'left', a: seg(u, 3.7, 4.2) });
+    const wts = [.15, .1, .1, .6, 1, .35];                // how much the next token attends to each (example weights)
+    wts.forEach((wt, i) => {
+      const a = seg(u, 5.0 + i * .15, 5.5 + i * .15), x1 = xs(i) - 26, x0 = xs(6);
+      if (a <= 0) return;
+      ctx.globalAlpha = a * GA * (.3 + .7 * wt); ctx.strokeStyle = C.violet; ctx.lineWidth = 2 + 7 * wt; glow(C.violet, 10 * wt);
+      ctx.beginPath(); ctx.moveTo(x0, y + 36); ctx.quadraticCurveTo((x0 + x1) / 2, 640 + 30 * i, x1, 508); ctx.stroke(); noGlow(); ctx.globalAlpha = 1;
+    });
+    text('asks: which tokens matter?', xs(6) - 40, y - 56, 20, C.violet, { a: seg(u, 4.6, 5.1) });
+    caption(u, [[.5, 4.3, 'Every token in the prompt is turned into a key (K) and a value (V).'], [4.5, 7.9, "To write the next token, the model looks back at every K\nand mixes in the V's of the tokens that matter."]]);
+  }
+  // B · without a cache, each step recomputes K and V for the whole history
+  if (sub(u, 8, 16)) {
+    const v = u - 8, G = GRID;
+    for (let s = 0; s < G.rows; s++) {
+      const t0 = .6 + s * 1.0, a = seg(v, t0, t0 + .3);
+      if (a <= 0) continue;
+      text(`step ${s + 1}`, G.x0 - 22, cellY(s) + G.ch / 2, 20, C.muted, { align: 'right', a });
+      for (let j = 0; j < rowLen(s); j++) {
+        const ca = seg(v, t0 + j * .03, t0 + j * .03 + .15), newest = j === rowLen(s) - 1, flash = 1 - seg(v, t0 + .1, t0 + 1);
+        box(cellX(j), cellY(s), G.cw, G.ch, newest ? C.violet : `rgba(255,90,118,${.28 + .4 * flash})`, newest ? C.violet : C.red, { a: ca, r: 7, lw: 2, glow: newest ? 0 : 14 * flash, glowColor: C.red });
+      }
+    }
+    const k = clamp(Math.floor((v - .6) / 1.0), -1, G.rows - 1), part = seg(v, .6 + Math.max(k, 0) * 1.0, .9 + Math.max(k, 0) * 1.0);
+    const val = k < 0 ? 0 : Math.round(lerp(k ? cum(k - 1) : 0, cum(k), part));
+    text(String(val), 1500, 400, 120, C.red, { w: 700, a: seg(v, .6, 1), glow: 20 });
+    text('K,V cells computed', 1500, 480, 24, C.muted, { a: seg(v, .6, 1) });
+    text('the same ones, again and again', 1500, 520, 20, C.red, { a: seg(v, 2, 2.6) });
+    caption(u, [[8.4, 12.2, 'Without a cache, every new token recomputes K and V\nfor the whole history, from scratch.'], [12.4, 15.9, 'The work piles up with every token.\nThe oldest tokens are recomputed the most.', C.red]]);
+  }
+  // C · with a cache: compute only the new token, read the rest
+  if (sub(u, 16, 25)) {
+    const v = u - 16, G = GRID;
+    for (let s = 0; s < G.rows; s++) {
+      const t0 = .5 + s * .8, a = seg(v, t0, t0 + .3), vv = v - t0;
+      if (a <= 0) continue;
+      text(s ? `step ${s + 1}` : 'prefill', G.x0 - 22, cellY(s) + G.ch / 2, 20, C.muted, { align: 'right', a });
+      const len = rowLen(s), sweep = seg(vv, .1, .5) * len;
+      for (let j = 0; j < len; j++) {
+        const ca = seg(vv, j * .03, j * .03 + .15), newest = s > 0 && j === len - 1, cached = s > 0 && !newest, read = cached && Math.abs(j - sweep) < 1.5 && vv < .6;
+        const col = s === 0 ? TOKCOL[j] : newest ? C.green : TOKCOL[j] || C.violet;
+        box(cellX(j), cellY(s), G.cw, G.ch, s === 0 ? col + 'aa' : newest ? C.green : cached ? (read ? col + '88' : col + '22') : col, cached && !read ? col + '55' : col, { a: ca, r: 7, lw: 2, glow: newest ? 14 * (1 - seg(vv, .3, 1)) : read ? 12 : 0, glowColor: col });
+      }
+    }
+    const k = clamp(Math.floor((v - .5) / .8), -1, G.rows - 1), part = seg(v, .5 + Math.max(k, 0) * .8, .8 + Math.max(k, 0) * .8);
+    const tot = s => 6 + s, val = k < 0 ? 0 : Math.round(lerp(k ? tot(k - 1) : 0, tot(k), part));
+    text(String(val), 1500, 400, 120, C.green, { w: 700, a: seg(v, .5, 1), glow: 20 });
+    text('K,V cells computed', 1500, 480, 24, C.muted, { a: seg(v, .5, 1) });
+    text('instead of 51', 1500, 520, 22, C.red, { a: seg(v, 5.3, 5.8) });
+    if (v > 5.3) line(1500 - tw('instead of 51', 22) / 2, 520, 1500 + tw('instead of 51', 22) / 2 - 36, 520, C.red, 2, seg(v, 5.3, 5.8));
+    // the price: the cache sits in GPU memory and grows with every token
+    const ma = seg(v, 6.2, 6.8);
+    box(1680, G.y0, 36, 6 * (G.ch + G.gap) - G.gap, '#111C30', C.dim, { a: ma, r: 10, lw: 2 });
+    const fill = Math.max(0, k >= 0 ? rowLen(k) / 11 : 0) * eOC(seg(v, 6.2, 8));
+    box(1680, G.y0 + (6 * (G.ch + G.gap) - G.gap) * (1 - fill), 36, (6 * (G.ch + G.gap) - G.gap) * fill, C.amber, null, { a: ma, r: 10, glow: 12 });
+    text('GPU memory', 1698, G.y0 + 6 * (G.ch + G.gap) + 24, 20, C.muted, { a: ma });
+    caption(u, [[16.4, 20.2, 'With a cache, K and V are computed once and kept.\nEach step computes the new token and reads the rest.', C.green], [20.5, 24.9, 'The price: the cache lives in GPU memory,\nand it grows with every token.', C.amber]]);
+  }
+  // D · prompt caching: the cache outlives the request
+  if (sub(u, 25, 34, false)) {
+    const v = u - 25, cw = 70, ch = 54, gp = 8, x0 = CX - (11 * (cw + gp) - gp) / 2, ys = [470, 670], X = j => x0 + j * (cw + gp);
+    text('system prompt (shared)', X(0) + (8 * (cw + gp) - gp) / 2, 405, 22, C.muted, { a: seg(v, .3, .8) });
+    text('question', X(9) + cw / 2 + (cw + gp) / 2 - (cw + gp) / 2, 405, 22, C.amber, { a: seg(v, .3, .8) });
+    ys.forEach((y, r) => text(`request ${r + 1}`, x0 - 24, y + ch / 2, 22, C.muted, { align: 'right', a: seg(v, r ? 3.4 : .3, r ? 3.9 : .8) }));
+    for (let r = 0; r < 2; r++) {
+      const t0 = r ? 3.6 : .4, qcol = r ? C.pink : C.amber;
+      for (let j = 0; j < 11; j++) {
+        const a = seg(v, t0 + j * .04, t0 + j * .04 + .2), q = j >= 8, col = q ? qcol : '#4F86D6';
+        let st = 0;                                       // 0 empty outline, 1 computed (cyan), 2 reused (green)
+        if (!r) st = seg(v, 1.4 + j * .1, 1.5 + j * .1) > 0 ? 1 : 0;
+        else st = !q ? (seg(v, 4.4, 4.5) > 0 ? 2 : 0) : (seg(v, 5.3 + (j - 8) * .3, 5.4 + (j - 8) * .3) > 0 ? 1 : 0);
+        const flash = st === 1 ? 1 - seg(v, !r ? 1.4 + j * .1 : 5.3 + (j - 8) * .3, (!r ? 1.4 + j * .1 : 5.3 + (j - 8) * .3) + .6) : st === 2 ? 1 - seg(v, 4.4, 5.2) : 0;
+        box(X(j), ys[r], cw, ch, st === 2 ? C.green + '55' : st === 1 ? col + '66' : 'rgba(13,22,40,.6)', st === 2 ? C.green : col, { a, r: 8, lw: st ? 3 : 2, glow: 16 * flash, glowColor: st === 2 ? C.green : C.cyan });
+      }
+    }
+    for (let j = 0; j < 8; j++) line(X(j) + cw / 2, ys[0] + ch, X(j) + cw / 2, ys[1], C.green, 3, seg(v, 4.3, 4.6) * (1 - seg(v, 5.2, 5.6)) * .9, [6, 6]);
+    text('KV cache kept', X(10) + cw + 26, ys[0] + ch / 2, 22, C.green, { align: 'left', a: seg(v, 2.4, 2.9) });
+    text('prefill: all 11 cells', X(10) + cw + 26, ys[0] + ch / 2 + 34, 20, C.muted, { align: 'left', a: seg(v, 1.8, 2.3) });
+    chip('cache hit', X(4) - 4, ys[1] - 52, 24, C.green, { ink: C.green, scale: eOB(seg(v, 4.4, 4.8)), a: seg(v, 4.4, 4.5) * (1 - seg(v, 7.2, 7.6)), lit: 1 });
+    text('prefill only 3 cells', X(10) + cw + 26, ys[1] + ch / 2, 22, C.green, { align: 'left', w: 700, a: seg(v, 6.2, 6.7) });
+    caption(u, [[25.4, 28.6, 'Prompt caching: the cache outlives the request.'], [28.7, 31.7, 'Same prefix again? Reuse its cache, and prefill only what is new.', C.green], [31.8, 33.9, 'A faster first token and a lower bill. This is what the router was after.', C.cyan]]);
+  }
+  GA = 1;
+}
+
+/* ---------- speculative decoding (2D, 31 s): a small draft model guesses, the big model checks all guesses in one pass ---------- */
+const BIG = { x: CX, y: 590, w: 700, h: 150 }, DRAFT = { x: 270, y: 340, w: 230, h: 96 };
+const GUESS = ['scatters', 'off', 'air', 'gases'], RIGHT = ['scatters', 'off', 'air', 'molecules,'];
+const sx = i => CX + (i - 1.5) * 250, GY = 340, OY = 820;   // the four token slots: guesses (top) and output (bottom)
+function specScene(u) {
+  heading(u, 'speculative decoding', 'guess a few tokens cheaply, check them all at once');
+  // the big model: a box that lights up once per pass
+  const bigLit = u < 8 ? [0, 1, 2, 3].reduce((m, i) => Math.max(m, bump(u, 1.0 + i * 1.7, 2.2 + i * 1.7)), 0) : u < 24 ? bump(u, 17.4, 19.2) : 0;
+  const bigA = 1 - seg(u, 24, 24.8);
+  box(BIG.x - BIG.w / 2, BIG.y - BIG.h / 2, BIG.w, BIG.h, C.panel, bigLit > .05 ? C.cyan : C.dim, { a: bigA, r: 22, lw: 3.5, glow: 30 * bigLit, glowColor: C.cyan });
+  text('big model', BIG.x - BIG.w / 2 + 28, BIG.y - BIG.h / 2 + 30, 24, C.muted, { align: 'left', w: 700, a: bigA });
+  // 1 · normal decoding: one slow pass per token
+  if (u < 9) {
+    const fade = 1 - seg(u, 8, 8.8);
+    for (let i = 0; i < 4; i++) {
+      const t0 = 2.2 + i * 1.7, a = eOB(seg(u, t0, t0 + .4)); if (a <= 0) continue;
+      chip(RIGHT[i], sx(i), lerp(BIG.y, OY, eIO(seg(u, t0, t0 + .8))), 30, C.violet, { scale: Math.min(1, a), a: fade });
+    }
+    const n = clamp(Math.floor((u - 2.2) / 1.7) + 1, 0, 4);
+    text(`big-model passes: ${n}`, BIG.x, BIG.y - BIG.h / 2 - 34, 32, n ? C.amber : C.muted, { w: 700, a: seg(u, .8, 1.2) * fade });
+    caption(u, [[.5, 4.2, 'Normally the big model writes one token per slow pass.'], [4.4, 8.5, 'Four tokens take four passes.', C.amber]]);
+  }
+  // 2 · the draft model guesses
+  if (u >= 9 && u < 24) {
+    const a = eOC(seg(u, 9, 9.6)) * (1 - seg(u, 23.4, 24));
+    box(DRAFT.x - DRAFT.w / 2, DRAFT.y - DRAFT.h / 2, DRAFT.w, DRAFT.h, C.panel, C.violet, { a, r: 18, lw: 3, glow: 14 * bump(u, 10, 12.4), glowColor: C.violet });
+    text('draft model', DRAFT.x, DRAFT.y - 16, 24, C.violet, { w: 700, a });
+    text('small, fast', DRAFT.x, DRAFT.y + 20, 20, C.muted, { a });
+    GUESS.forEach((g, i) => {
+      const t0 = 10.2 + i * .65, c = eOB(seg(u, t0, t0 + .35)), wrong = i === 3, ex = u > 20 && wrong;
+      if (c <= 0) return;
+      const move = eIO(seg(u, 16.3, 17.4)), y = lerp(GY, BIG.y, move), inBig = move > .98 && u < 19.2;
+      const outv = eIO(seg(u, 19.3, 20.2)), fy = lerp(BIG.y, OY, outv);
+      const yy = u < 17.4 ? y : u < 19.3 ? BIG.y : fy;
+      const checked = seg(u, 19.3 + i * .35, 19.5 + i * .35), col = checked > 0 ? (wrong ? C.red : C.green) : C.violet;
+      if (!ex || u < 20.6) {
+        chip(g, sx(i), yy, 30, col, { scale: Math.min(1, c), dash: u < 19.3, a: (1 - seg(u, 23, 24)) * (inBig ? .35 : 1), lit: checked * (1 - seg(u, 20, 21)) });
+        if (checked > 0 && u < 23) text(wrong ? '✕' : '✓', sx(i) + tw(g, 30, 700) / 2 + 30, yy - 22, 34, col, { w: 700, a: eOB(checked) });
+      }
+      if (u < 16.2) packet(lerp(DRAFT.x + DRAFT.w / 2, sx(i), eOC(seg(u, t0 - .25, t0 + .25))), lerp(DRAFT.y, GY, eOC(seg(u, t0 - .25, t0 + .25))), 6, C.violet, 1 - seg(u, t0 + .1, t0 + .3));
+    });
+    // the wrong guess is replaced by the big model's own token
+    const rep = eOB(seg(u, 20.9, 21.4));
+    if (rep > 0) chip(RIGHT[3], sx(3), OY, 30, C.violet, { scale: Math.min(1, rep), a: 1 - seg(u, 23, 24), lit: 1 - seg(u, 21.4, 22.4) });
+    if (u > 17.4 && u < 19.3) text('checking all 4 at once', BIG.x, BIG.y + 56, 26, C.cyan, { a: seg(u, 17.4, 17.9) * (1 - seg(u, 18.9, 19.3)), w: 700 });
+    text('big-model passes: 1', BIG.x + BIG.w / 2, BIG.y - BIG.h / 2 - 34, 30, C.amber, { align: 'right', w: 700, a: seg(u, 17.4, 17.9) * (1 - seg(u, 23, 24)) });
+    caption(u, [[9.4, 12.8, 'A small draft model guesses the next few tokens.\nIt is fast and cheap.'], [13, 16, 'It can be wrong, so nothing is final yet.', C.amber],
+      [16.4, 19.2, 'The big model checks all four guesses in one pass, in parallel.', C.cyan], [19.4, 22.8, "Right guesses are kept. The first wrong one is replaced\nby the big model's own token."], [22.9, 23.9, '4 tokens, 1 big pass.', C.green]]);
+  }
+  // 3 · the comparison
+  if (u >= 24) {
+    const v = u - 24, a = seg(v, .3, .9), L = 130, bw = 170, y1 = 430, y2 = 640, x0 = CX - 560;
+    text('one token per pass', x0, y1 - 62, 26, C.amber, { align: 'left', w: 700, a });
+    for (let i = 0; i < 4; i++) box(x0 + i * (bw + 8), y1 - 30, bw, 60, C.cyan + '33', C.cyan, { a: eOC(seg(v, .5 + i * .35, .9 + i * .35)), r: 10, glow: 10 });
+    text('with a draft model', x0, y2 - 62, 26, C.green, { align: 'left', w: 700, a: seg(v, 2.2, 2.7) });
+    for (let i = 0; i < 4; i++) box(x0 + i * 34, y2 - 20, 28, 40, C.violet + '55', C.violet, { a: eOC(seg(v, 2.4 + i * .2, 2.7 + i * .2)), r: 6 });
+    box(x0 + 4 * 34 + 8, y2 - 30, bw, 60, C.cyan + '33', C.cyan, { a: eOC(seg(v, 3.3, 3.8)), r: 10, glow: 10 });
+    const endNormal = x0 + 4 * (bw + 8) - 8, endSpec = x0 + 4 * 34 + 8 + bw;
+    line(endNormal, y1 - 80, endNormal, y2 + 70, C.amber, 2.5, seg(v, 3.8, 4.3), [8, 8]);
+    box(endSpec, y2 + 50, endNormal - endSpec, 4, C.green, null, { a: seg(v, 4.0, 4.5), r: 2, glow: 10 });
+    text('time saved', (endSpec + endNormal) / 2, y2 + 82, 24, C.green, { w: 700, a: seg(v, 4.2, 4.7) });
+    text('same 4 tokens, about half the time (example)', CX, 800, 26, C.muted, { a: seg(v, 4.6, 5.1) });
+    caption(u, [[24.4, 28, 'Same text, fewer slow passes.\nIt pays off when the guesses are usually right.'], [28.2, 30.9, "The output is exactly what the big model alone would write.", C.green]]);
+  }
+}
+
+/* ---------- prefill/decode disaggregation (2D, 32 s): one GPU doing both jobs, then two pools ---------- */
+function disaggScene(u) {
+  heading(u, 'prefill / decode disaggregation', 'two different jobs, two kinds of GPU');
+  if (sub(u, 0, 12)) {
+    const GB = { x: 360, y: 340, w: 1200, h: 320 }, ly = 510, c0 = 410, c1 = 1510, PF0 = 780, PF1 = 1180;
+    box(GB.x, GB.y, GB.w, GB.h, 'rgba(13,22,40,.6)', C.dim, { r: 26, lw: 3 });
+    text('one GPU', GB.x + 28, GB.y + 32, 24, C.muted, { align: 'left', w: 700 });
+    const cur = lerp(c0, c1, seg(u, 1.0, 10.8));
+    for (let k = 0; ; k++) {                              // decode: a steady beat of tokens, except while the prefill block holds the GPU
+      const x = c0 + k * 56; if (x > cur) break;
+      if (x > PF0 - 20 && x < PF1 + 8) continue;
+      box(x - 12, ly - 36, 24, 72, C.violet, null, { a: .85, r: 6, glow: 8 });
+    }
+    const pf = clamp((cur - PF0) / (PF1 - PF0), 0, 1);
+    if (pf > 0) { box(PF0, ly - 66, (PF1 - PF0) * pf, 132, C.cyan + 'bb', C.cyan, { r: 14, lw: 3, glow: 20 }); if (pf > .4) text('prefill', (PF0 + PF0 + (PF1 - PF0) * pf) / 2, ly, 34, C.bg, { w: 700 }); }
+    if (u > 3.0 && u < 4.2) chip('long prompt', lerp(160, PF0 - 60, eOC(seg(u, 3, 4))), ly, 26, C.cyan, { a: 1 - seg(u, 3.9, 4.2) });
+    const st = seg(u, 5.2, 5.8) * (1 - seg(u, 11.4, 12));
+    line(PF0, ly - 96, PF1, ly - 96, C.red, 3, st); line(PF0, ly - 96, PF0, ly - 84, C.red, 3, st); line(PF1, ly - 96, PF1, ly - 84, C.red, 3, st);
+    text('every reply stalls', (PF0 + PF1) / 2, ly - 128, 28, C.red, { w: 700, a: st });
+    if (u > 1.0) line(cur, ly - 100, cur, ly + 100, C.ink, 2, .7 * (1 - seg(u, 10.8, 11.2)));
+    box(GB.x + 28, 702, 22, 22, C.violet, null, { a: seg(u, 1, 1.5), r: 5 }); text("decode: everyone's replies, a token at a time", GB.x + 64, 713, 22, C.muted, { align: 'left', a: seg(u, 1, 1.5) });
+    box(GB.x + 28, 742, 22, 22, C.cyan, null, { a: seg(u, 1, 1.5), r: 5 }); text('prefill: a new prompt, all at once', GB.x + 64, 753, 22, C.muted, { align: 'left', a: seg(u, 1, 1.5) });
+    caption(u, [[.5, 4, 'One GPU does both jobs: prefill and decode.'], [4.2, 8.2, "A long prompt hogs the GPU, and everyone else's reply stalls.", C.red], [8.4, 11.8, 'Prefill is compute-bound, decode is memory-bound.\nThey get in each other\'s way.']]);
+  }
+  if (u >= 12) {
+    const v = u - 12, PL = { x: 560, y: 540, w: 480, h: 360 }, PR = { x: 1360, y: 540, w: 560, h: 360 }, a = eOC(seg(v, .2, 1));
+    GA = a; ctx.save(); ctx.translate(0, 70);
+    for (const [P_, col, name, kind] of [[PL, C.cyan, 'prefill pool', 'compute-bound'], [PR, C.violet, 'decode pool', 'memory-bound']]) {
+      box(P_.x - P_.w / 2, P_.y - P_.h / 2, P_.w, P_.h, 'rgba(13,22,40,.6)', col, { r: 26, lw: 3 });
+      text(name, P_.x, P_.y - P_.h / 2 - 30, 30, col, { w: 700 }); text(kind, P_.x, P_.y + P_.h / 2 + 30, 22, C.muted);
+    }
+    // the KV cache link between the pools
+    const link = { x0: PL.x + PL.w / 2, x1: PR.x - PR.w / 2, y: 540 }, pulseLink = v > 16 ? .5 + .5 * Math.sin(v * 4) : 0;
+    line(link.x0 + 6, link.y, link.x1 - 6, link.y, v > 16 ? C.amber : C.dim, 4 + (v > 16 ? 2 : 0) * pulseLink, 1, [10, 10]);
+    text('KV cache', (link.x0 + link.x1) / 2, link.y - 34, 22, v > 16 ? C.amber : C.muted, { w: 700 });
+    // GPUs: the decode pool grows later
+    const left = [[470, 500], [650, 500]], right = [[1210, 460], [1360, 460], [1510, 460], [1210, 545], [1360, 545], [1510, 545]];
+    const ARR = [4.0, 7.4, 10.8], busy = ARR.reduce((m, t0) => Math.max(m, bump(v, t0, t0 + 1.6)), 0);
+    left.forEach(([x, y]) => gpuIcon(x, y, 92, C.cyan, busy));
+    right.forEach(([x, y], i) => { const grow = i < 3 ? 1 : eOC(seg(v, 13.5 + (i - 3) * .3, 14.1 + (i - 3) * .3)); if (grow > 0) gpuIcon(x, y, 92 * Math.min(1, grow), C.violet, v > 6.3 ? .6 + .3 * Math.sin(v * 5 + i) : 0, grow); });
+    gauge(PL.x - 200, PL.y + 110, 220, 'compute', .95 * eOC(seg(v, 1, 2)), C.cyan, seg(v, 1, 1.5));
+    gauge(PL.x - 200, PL.y + 145, 220, 'memory', .3 * eOC(seg(v, 1.2, 2.2)), C.cyan, seg(v, 1, 1.5));
+    gauge(PR.x - 230, PR.y + 110, 260, 'compute', .3 * eOC(seg(v, 1, 2)), C.violet, seg(v, 1, 1.5));
+    gauge(PR.x - 230, PR.y + 145, 260, 'memory', .95 * eOC(seg(v, 1.2, 2.2)), C.violet, seg(v, 1, 1.5));
+    // three requests: prefill on the left, then the KV cache crosses over, then steady decode on the right
+    ARR.forEach((t0, k) => {
+      const ours = k === 1, x = lerp(110, PL.x - PL.w / 2 - 20, eOC(seg(v, t0 - 1.3, t0)));
+      if (v > t0 - 1.3 && v < t0 + .2) packet(x, 520, 12, ours ? C.amber : C.cyan, 1 - seg(v, t0, t0 + .2));
+      if (ours && v > t0 - 1.3 && v < t0) text('our request', x, 470, 20, C.amber, { w: 700, a: seg(v, t0 - 1.1, t0 - .8) });
+      const kx = lerp(link.x0, link.x1, eIO(seg(v, t0 + 1.7, t0 + 2.7)));
+      if (v > t0 + 1.7 && v < t0 + 2.8) for (let r = 0; r < 4; r++) box(kx - 14, 500 + r * 13 - 8, 28, 10, TOKCOL[(r + k) % 6], null, { r: 3, glow: 10, a: 1 - seg(v, t0 + 2.6, t0 + 2.8) });
+      const tx0 = t0 + 2.8, ly = 495 + k * 45;                                  // its reply streams out of the decode pool, a token every 0.4 s
+      for (let n = 0; n < 24; n++) {
+        const s0 = tx0 + n * .4, p = seg(v, s0, s0 + 1.2); if (p <= 0 || p >= 1) continue;
+        packet(lerp(PR.x + PR.w / 2 + 6, 1880, p), ly + 0, 7, ours ? C.amber : C.violet, 1 - seg(p, .8, 1));
+      }
+    });
+    text('replies stream out, steadily', PR.x, PR.y + PR.h / 2 + 100, 22, C.muted, { a: seg(v, 7, 7.6) });
+    const n1 = 2, n2 = Math.round(lerp(3, 6, seg(v, 13.5, 14.5)));
+    text(`${n1} GPUs`, PL.x, PL.y + PL.h / 2 + 62, 24, C.cyan, { w: 700, a: seg(v, 12, 12.6) });
+    text(`${n2} GPUs`, PR.x, PR.y + PR.h / 2 + 62, 24, C.violet, { w: 700, a: seg(v, 12, 12.6) });
+    GA = 1; ctx.restore();
+    caption(u, [[12.4, 16, 'Disaggregation: prefill and decode run on separate GPU pools.'], [16.2, 20.2, 'After prefill, the KV cache is sent to a decode GPU over a fast link.', C.amber],
+      [20.4, 24, "Decode never waits behind a long prompt,\nand a new prompt never waits for someone else's reply."], [24.3, 28, 'Each pool is sized and tuned for its own bottleneck:\ncompute for prefill, memory for decode.', C.green], [28.2, 31.8, 'The price: the KV cache has to travel, so the link must be fast.', C.amber]]);
+  }
+}
+
+/* ---------- cache-aware routing in blocks (2D, 28 s): a whole-prompt hash breaks on one changed word; block hashes don't ---------- */
+const BWORDS = ['You', 'are', 'a', 'helpful', 'support', 'agent', 'Our', 'policy:', '30', 'day', 'refund', '?'];   // 4 blocks of 3 tokens (example)
+const BHASH = ['a1', '7c', 'e4', 'b9'], BHASH2 = ['a1', '7c', 'e4', 'd2'], BAD = 10;   // the changed word: "refund" → "return"
+const BCW = 112, BCH = 56, BGAP = 8;
+const bxFlat = i => 228 + i * (BCW + BGAP + 2);                                       // the whole prompt as one row
+const bxBlk = i => 190 + Math.floor(i / 3) * (3 * BCW + 2 * BGAP + 44) + (i % 3) * (BCW + BGAP);   // grouped in blocks
+const blkCx = b => bxBlk(b * 3) + (3 * BCW + 2 * BGAP) / 2;
+function blocksScene(u) {
+  heading(u, 'prompt caching in blocks', 'why one changed word should not cost the whole cache');
+  const cell = (x, y, w, a, col, hot) => {
+    box(x, y, BCW, BCH, hot ? C.red + '44' : col + '33', hot ? C.red : col, { a, r: 8, lw: 2.5 });
+    text(w, x + BCW / 2, y + BCH / 2 + 1, 22, hot ? C.red : C.ink, { a, w: hot ? 700 : 400 });
+  };
+  // A · hash the whole prompt
+  if (sub(u, 0, 11)) {
+    const y1 = 380, y2 = 610, blue = '#4F86D6';
+    text('request 1', 190, y1 - 36, 22, C.muted, { align: 'left', a: seg(u, .3, .8) });
+    BWORDS.forEach((w, i) => cell(bxFlat(i), y1, w, seg(u, .3 + i * .05, .55 + i * .05), blue, false));
+    chip('hash  9f3a', CX, y1 - 74, 28, C.amber, { ink: C.amber, scale: eOB(seg(u, 1.8, 2.3)), a: seg(u, 1.8, 2) });
+    text('computed once, then cached', CX, y1 + BCH + 38, 22, C.green, { a: seg(u, 2.4, 2.9) });
+    text('request 2: one word changed', 190, y2 - 36, 22, C.muted, { align: 'left', a: seg(u, 3.2, 3.7) });
+    BWORDS.forEach((w, i) => {
+      const hot = (i === BAD && u > 4.4) || u > 7.8;
+      cell(bxFlat(i), y2, i === BAD ? 'return' : w, seg(u, 3.2 + i * .05, 3.45 + i * .05), blue, hot);
+    });
+    chip('hash  c71e', CX, y2 + BCH + 56, 28, C.red, { ink: C.red, scale: eOB(seg(u, 5.2, 5.7)), a: seg(u, 5.2, 5.4) });
+    text('≠  a completely different hash', CX, 530, 26, C.red, { w: 700, a: seg(u, 6, 6.5) });
+    text('no match: all 12 tokens are computed again', CX, y2 + BCH + 126, 28, C.red, { w: 700, a: seg(u, 8, 8.5) });
+    caption(u, [[.5, 4, 'Prompt caching reuses work when a new prompt starts like an old one.'], [4.2, 7.8, 'But hash the whole prompt, and one changed word\ngives a completely different hash.', C.amber], [8, 10.8, 'No match, so the whole prompt is computed again.', C.red]]);
+  }
+  // B · hash it in blocks; the router keeps a map of who holds which blocks
+  if (sub(u, 11, 28, false)) {
+    const v = u - 11, y1 = 300, y2 = 440, blue = '#4F86D6', ry = 710, rw = 420, rcx = [420, CX, 1500];
+    const brackets = (y, a, col) => { for (let b = 0; b < 4; b++) box(bxBlk(b * 3) - 8, y - 8, 3 * BCW + 2 * BGAP + 16, BCH + 16, null, col(b), { a, r: 14, lw: 2 }); };
+    text('request 1', 190, y1 - 50, 22, C.muted, { align: 'left', a: seg(v, .2, .7) });
+    brackets(y1, seg(v, .4, 1), () => C.dim);
+    BWORDS.forEach((w, i) => cell(bxBlk(i), y1, w, seg(v, .2 + i * .05, .45 + i * .05), blue, false));
+    BHASH.forEach((h, b) => {
+      chip(h, blkCx(b), y1 - 50, 24, C.cyan, { ink: C.cyan, scale: eOB(seg(v, 1 + b * .4, 1.4 + b * .4)), a: seg(v, 1 + b * .4, 1.2 + b * .4) });
+      if (b < 3) text('→', (blkCx(b) + blkCx(b + 1)) / 2, y1 - 50, 26, C.muted, { a: seg(v, 2.6 + b * .25, 3 + b * .25) });
+    });
+    text('each hash includes the block before it', CX, y1 + BCH + 44, 22, C.muted, { a: seg(v, 2.8, 3.3) * (1 - seg(v, 5.2, 5.6)) });
+    text('request 2', 190, y2 - 14, 22, C.muted, { align: 'left', a: seg(v, 3.4, 3.9) });
+    brackets(y2 + 30, seg(v, 3.5, 4), b => v > 5.2 + b * .3 ? (b < 3 ? C.green : C.red) : C.dim);
+    BWORDS.forEach((w, i) => cell(bxBlk(i), y2 + 30, i === BAD ? 'return' : w, seg(v, 3.4 + i * .05, 3.65 + i * .05), blue, i === BAD && v > 4.4));
+    BHASH2.forEach((h, b) => {
+      const ok = b < 3, t0 = 5.2 + b * .3, a = seg(v, t0, t0 + .3);
+      chip(h, blkCx(b), y2 + 30 + BCH + 50, 24, ok ? C.green : C.red, { ink: ok ? C.green : C.red, scale: eOB(a), a, lit: ok ? 1 - seg(v, t0 + .3, t0 + 1.2) : 0 });
+      text(ok ? 'reuse' : 'compute', blkCx(b), y2 + 30 + BCH + 90, 22, ok ? C.green : C.red, { w: 700, a: seg(v, t0 + .3, t0 + .7) });
+    });
+    // the router's map: which replica holds which block hashes
+    const REP = [['replica 1', ['x3', '4f']], ['replica 2', BHASH], ['replica 3', ['a1', 'm8']]];
+    REP.forEach(([name, hs], k) => {
+      const a = seg(v, 9 + k * .25, 9.7 + k * .25), pick = k === 1 ? seg(v, 12.6, 13.2) : 0;
+      box(rcx[k] - rw / 2, ry - 58, rw, 116, 'rgba(13,22,40,.8)', pick > 0 ? C.green : C.dim, { a, r: 18, lw: 3, glow: 20 * pick, glowColor: C.green });
+      text(name, rcx[k] - rw / 2 + 24, ry - 32, 22, pick > 0 ? C.green : C.muted, { align: 'left', w: 700, a });
+      hs.forEach((h, i) => chip(h, rcx[k] - rw / 2 + 60 + i * 88, ry + 16, 24, k === 1 ? C.cyan : C.muted, { ink: k === 1 ? C.cyan : C.muted, a }));
+    });
+    if (v > 11) {
+      const e = eIO(seg(v, 11.2, 12.6));
+      line(CX, y2 + 30 + BCH + 116, CX, lerp(y2 + 30 + BCH + 116, ry - 62, e), C.amber, 3, seg(v, 11.2, 11.5), [8, 8]);
+      if (e < 1) packet(CX, lerp(y2 + 30 + BCH + 116, ry - 62, e), 9, C.amber, seg(v, 11.2, 11.5));
+      text('the router sends it here', CX + 24, 630, 24, C.amber, { align: 'left', w: 700, a: seg(v, 11.6, 12.2) });
+    }
+    caption(u, [[11.5, 15, 'So caches work in blocks. Each block has its own hash,\nand each hash includes the block before it.'], [15.2, 19.4, 'Change one word in the last block:\nthe first three still match, and are reused.', C.green],
+      [19.6, 23.4, 'The router keeps a table of block hashes,\nand sends the request to the replica that holds them.', C.cyan], [23.6, 27.8, 'It is only a hint: a replica may have dropped the cache.\nThat costs a recompute, not an error.', C.amber]], H - 90);
+  }
+  GA = 1;
+}
+
+/* ---------- continuous batching (2D, 18 s): static batches wait for the slowest request; continuous batching refills at every step ---------- */
+const UNIT = 96, BX0 = 500, LH = 34, LG = 8;
+const SB = [[0, 0, 6, 'A'], [1, 0, 2, 'B'], [2, 0, 4, 'C'], [3, 0, 3, 'D'], [0, 6, 3, 'E'], [1, 6, 5, 'F'], [2, 6, 2, 'G'], [3, 6, 4, 'H']];   // [lane, start step, steps, request]
+const SB_IDLE = [[1, 2, 6], [2, 4, 6], [3, 3, 6], [0, 9, 11], [2, 8, 11], [3, 10, 11]];                                                         // [lane, from, to]
+const CB = [[0, 0, 6, 'A'], [0, 6, 2, 'G'], [1, 0, 2, 'B'], [1, 2, 5, 'F'], [2, 0, 4, 'C'], [2, 4, 3, 'E'], [3, 0, 3, 'D'], [3, 3, 4, 'H']];
+const CB_IDLE = [[1, 7, 8], [2, 7, 8], [3, 7, 8]];
+function batchPanel(y0, name, col, bars, idle, cur, a, busy, done) {
+  const lane = l => y0 + l * (LH + LG);
+  for (let l = 0; l < 4; l++) box(BX0, lane(l), 11 * UNIT, LH, 'rgba(13,22,40,.7)', null, { a, r: 6 });
+  for (const [l, s0, s1] of idle) { const w = clamp(cur - s0, 0, s1 - s0) * UNIT; if (w > 0) box(BX0 + s0 * UNIT, lane(l), w, LH, 'rgba(255,90,118,.16)', null, { a, r: 6 }); }
+  for (const [l, s0, n, id] of bars) {
+    const w = clamp(cur - s0, 0, n) * UNIT; if (w <= 2) continue;
+    const c = id === 'H' ? C.amber : C.cyan;
+    box(BX0 + s0 * UNIT + 1, lane(l), w - 2, LH, c + '55', c, { a, r: 6, lw: 2 });
+    if (w > 70) text(id === 'H' ? 'H  (ours)' : id, BX0 + s0 * UNIT + 14, lane(l) + LH / 2 + 1, 20, c, { align: 'left', w: 700, a });
+  }
+  if (cur > .05 && cur < 11) line(BX0 + cur * UNIT, y0 - 10, BX0 + cur * UNIT, y0 + 4 * LH + 3 * LG + 10, C.ink, 2, .6 * a);
+  text(name, BX0 - 30, y0 + (4 * LH + 3 * LG) / 2, 26, col, { align: 'right', w: 700, a });
+  text(`GPU busy ${busy}%`, BX0 + 11 * UNIT + 40, y0 + 36, 26, col, { align: 'left', w: 700, a: a * seg(cur, done - .2, done + .5) });
+  text(`all done at step ${done}`, BX0 + 11 * UNIT + 40, y0 + 78, 22, C.muted, { align: 'left', a: a * seg(cur, done - .2, done + .5) });
+}
+function batchScene(u) {
+  heading(u, 'continuous batching', 'one GPU serves many requests at once');
+  batchPanel(260, 'static batching', C.red, SB, SB_IDLE, clamp((u - 1) / 6 * 11, 0, 11), seg(u, .3, .8), 66, 11);
+  batchPanel(520, 'continuous', C.green, CB, CB_IDLE, clamp((u - 8.6) / 4.36 * 8, 0, 8), seg(u, 8, 8.6), 91, 8);
+  caption(u, [[.5, 4, 'A GPU serves many requests at once, as a batch.'], [4.2, 8.4, 'Static batching waits for the slowest request.\nThe GPU idles, and a new request waits for the next batch.', C.red],
+    [8.8, 13, 'Continuous batching: at every step, finished requests leave\nand new ones join straight away.', C.green], [13.2, 17.8, 'The GPU stays busy, and our request starts sooner.', C.amber]]);
+}
+
+/* ---------- streaming back (2D, 14 s): token ids → text → server-sent events → the client ---------- */
+const IDS = [37148, 38282, 1250, 4034, 24464, 290, 5057, 3033, 24480, 290, 1645, 813];   // example ids for the first words of OUT
+function streamScene(u) {
+  heading(u, 'streaming back', 'each token becomes text and is sent as soon as it is made');
+  const gx = 250, dx = 760, y = 560, CBX = { x: 1130, y: 340, w: 640, h: 440 }, t00 = 1.6, dt = .7;
+  gpuIcon(gx, y, 120, C.violet, .5 + .4 * Math.sin(u * 6), 1);
+  text('GPU', gx, y + 100, 24, C.muted);
+  box(dx - 130, y - 55, 260, 110, C.panel, C.cyan, { r: 18, lw: 3 });
+  text('detokenize', dx, y - 14, 26, C.cyan, { w: 700 }); text('id → text', dx, y + 24, 20, C.muted);
+  box(CBX.x, CBX.y, CBX.w, CBX.h, C.panel, C.dim, { r: 24, lw: 3 });
+  text('client', CBX.x + 8, CBX.y - 26, 24, C.muted, { align: 'left' }); text('stream: true', CBX.x + CBX.w - 8, CBX.y - 26, 22, C.muted, { align: 'right' });
+  line(gx + 80, y, dx - 130, y, C.dim, 3, 1, [6, 10]); line(dx + 130, y, CBX.x, y, C.dim, 3, 1, [6, 10]);
+  let lx = 0, ly = 0, last = -1;
+  IDS.forEach((id, i) => {
+    const t0 = t00 + i * dt;
+    if (u >= t0 && u < t0 + .5) chip(String(id), lerp(gx + 110, dx - 90, eOC(seg(u, t0, t0 + .5))), y, 24, C.violet, { a: 1 - seg(u, t0 + .4, t0 + .5) });
+    if (u >= t0 + .5 && u < t0 + 1) chip(OUT[i], lerp(dx + 100, CBX.x + 70, eOC(seg(u, t0 + .5, t0 + 1))), y, 26, C.cyan, { a: 1 - seg(u, t0 + .85, t0 + 1) });
+    if (u >= t0 + .5) last = i;
+    if (u >= t0 + 1) {
+      const w = tw(OUT[i], 32);
+      if (lx + w > CBX.w - 72) { lx = 0; ly += 52; }
+      text(OUT[i], CBX.x + 36 + lx, CBX.y + 70 + ly, 32, C.ink, { align: 'left', a: seg(u, t0 + 1, t0 + 1.25) });
+      lx += w + tw(' ', 32);
+    }
+  });
+  if (last >= 0) text(`data: {"delta": "${OUT[last]}"}`, dx, y + 110, 22, C.amber, { a: seg(u, t00 + last * dt + .5, t00 + last * dt + .7) * (1 - seg(u, t00 + last * dt + 1.2, t00 + last * dt + 1.4) * (last === 11 ? 0 : 1)) });
+  text('server-sent events', dx, y + 146, 20, C.muted, { a: seg(u, 3, 3.6) });
+  caption(u, [[.5, 4.2, 'The GPU makes one token at a time.'], [4.4, 8.6, 'Each token id is turned back into text and sent at once,\nas a server-sent event.'], [8.8, 12.2, 'That is why the reply appears word by word.', C.green], [12.4, 13.9, 'Until a stop token, or the token limit.', C.amber]]);
+}
+
+/* ---------- stop and recap (2D, 16 s): <eos>, the stopwatch stops, the whole trip on one line, and where each idea helps ---------- */
+const BAR = { x: CX - 700, w: 1400, y: CY + 90 };
+const TOTAL = STAGES.reduce((a, s) => a + s[1], 0);
+function recapScene(u) {
+  const st = eOB(seg(u, 0, .4));
+  chip('<eos>', CX, CY - 290, 44, C.amber, { scale: lerp(2.2, 1, clamp(st, 0, 1.3)), a: seg(u, 0, .1), ink: C.amber, lit: 1 - seg(u, .4, 1.4) });
+  ring(CX, CY - 290, seg(u, .05, .8), 300, C.amber, 6);
+  text(`${TOTAL.toFixed(2)} s`, CX, CY - 150, 140, C.ink, { w: 700, glow: 30 * (1 - seg(u, .3, 1.4)), a: seg(u, .15, .3) });
+  text('stop token → usage counted → stopwatch stops', CX, CY - 55, 26, C.muted, { a: seg(u, 1.2, 1.8) * (1 - seg(u, 6, 6.6)) });
+  const sw = seg(u, 1.4, 4.2) * BAR.w; let x = BAR.x; const xs = [];
+  box(BAR.x, BAR.y - 14, BAR.w, 28, '#111C30', null, { r: 14 });
+  ctx.save(); rr(BAR.x, BAR.y - 14, BAR.w, 28, 14); ctx.clip();
+  for (const [name, d, c] of STAGES) {
+    const w = d / TOTAL * BAR.w; xs.push([x, w, name, c]);
+    ctx.fillStyle = c; ctx.fillRect(x, BAR.y - 14, Math.max(0, Math.min(w, BAR.x + sw - x)), 28); x += w;
+  }
+  ctx.restore();
+  if (sw > 0 && sw < BAR.w) packet(BAR.x + sw, BAR.y, 12, C.ink);
+  const la = seg(u, 4.2, 4.8), ttft = xs[5][0] + xs[5][1];
+  for (const [x0, x1, s, c] of [[BAR.x, ttft, 'first token  0.42 s', C.amber], [ttft, BAR.x + BAR.w, 'streaming  1.72 s', C.violet]]) {
+    const y = BAR.y - 44; ctx.globalAlpha = la; ctx.strokeStyle = c; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x0 + 2, y + 14); ctx.lineTo(x0 + 2, y); ctx.lineTo(x1 - 2, y); ctx.lineTo(x1 - 2, y + 14); ctx.stroke(); ctx.globalAlpha = 1;
+    text(s, Math.max((x0 + x1) / 2, BAR.x + tw(s, 26, 700) / 2), y - 26, 26, c, { w: 700, a: la });
+  }
+  for (const [x0, w, name, c] of xs.slice(4)) text(name, x0 + w / 2, BAR.y + 40, 24, c, { a: seg(u, 4.6, 5.2) });
+  text('example timings', CX, H - 60, 22, C.muted, { a: seg(u, 5, 5.6) });
+  text('6 tokens in  ·  20 tokens out  →  billed per token (example)', CX, CY - 55, 26, C.cyan, { a: seg(u, 6.6, 7.2) * (1 - seg(u, 9.4, 10)) });
+  // where each idea helps
+  // [where it points on the bar, where its label sits, name, colour, appears at, what it saves]
+  const tips = [[xs[4][0] + xs[4][1] / 2, BAR.x + 90, 'disaggregation', C.amber, 9.6, 'no queueing behind other jobs'], [xs[5][0] + xs[5][1] / 2, BAR.x + 560, 'prompt caching', C.cyan, 11.2, 'skips most of prefill'],
+    [(xs[6][0] + xs[6][0] + xs[6][1]) / 2, BAR.x + 1120, 'speculative decoding', C.violet, 12.8, 'fewer slow passes']];
+  tips.forEach(([px, tx, name, c, t0, sub2]) => {
+    const a = seg(u, t0, t0 + .5), ty = BAR.y + 190;
+    line(px, BAR.y + 62, tx, ty - 24, c, 2.5, a * .8);
+    chip(name, tx, ty, 28, c, { ink: c, a, scale: eOB(seg(u, t0, t0 + .4)) });
+    text(sub2, tx, ty + 48, 22, C.muted, { a: a * .9 });
+  });
+}
+
+/* ---------- end card: the title, and the request bouncing from the client to the GPU and back ---------- */
+function endScene(u) {
+  const a = eOC(seg(u, .1, .8)), ty = CY - 150;
+  text('Tracing an LLM API Request', CX, ty + 30 * (1 - a), 88, C.ink, { w: 700, a, glow: 14 });
+  text('from your code to the GPU and back', CX, ty + 100, 36, C.muted, { a: seg(u, .6, 1.1) });
+  const by = ty + 260, cl = CX - 420, gp = CX + 420, ia = eOC(seg(u, 1, 1.5));
+  ctx.globalAlpha = ia; ctx.setLineDash([6, 12]); ctx.strokeStyle = C.dim; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(cl + 60, by); ctx.lineTo(gp - 60, by); ctx.stroke(); ctx.setLineDash([]);
+  rr(cl - 40, by - 30, 80, 52, 8); ctx.lineWidth = 3.5; ctx.strokeStyle = C.ink; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cl - 52, by + 32); ctx.lineTo(cl + 52, by + 32); ctx.stroke();
+  rr(gp - 32, by - 32, 64, 64, 10); ctx.stroke();
+  for (let k = -1; k <= 1; k++) for (const [ax, ay, bx, bY] of [[gp + k * 18, by - 32, gp + k * 18, by - 44], [gp + k * 18, by + 32, gp + k * 18, by + 44], [gp - 32, by + k * 18, gp - 44, by + k * 18], [gp + 32, by + k * 18, gp + 44, by + k * 18]]) { ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, bY); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+  text('client', cl, by + 74, 24, C.muted, { a: ia }); text('GPU', gp, by + 74, 24, C.muted, { a: ia });
+  if (u > 1.5) {
+    const ph = ((u - 1.5) / 1.6) % 1, out = ph < .5, e = eIO(out ? ph * 2 : (ph - .5) * 2);
+    packet(out ? lerp(cl + 60, gp - 60, e) : lerp(gp - 60, cl + 60, e), by, 11, out ? C.cyan : C.violet, ia);
+    ring(gp, by, out ? 0 : seg(ph, .5, .75), 70, C.cyan, 3); ring(cl, by, out && u > 3 ? seg(ph, 0, .25) : 0, 70, C.violet, 3);
+  }
+  text('Created by sujee.dev', 190, H - 100, 26, C.muted, { align: 'left', a: seg(u, 2, 2.6) * .9 });
+  text('Liked this? A 👍 helps others discover it.', 190, H - 56, 24, C.muted, { align: 'left', a: seg(u, 2.4, 3) * .9 });
+}
+
+/* ---------- journey chrome (over the 3D world): stopwatch, stage title, timeline, captions ---------- */
+const TITLES = [[4, 6, 'request', 'HTTPS POST to the API'], [6, 8, 'gateway', 'auth + rate limits'], [8, 10, 'tokenizer', 'text → tokens'],
+  [10, 12, 'router', 'sends it where its prompt is cached'], [12, 14, 'queue', 'batched with other requests on one GPU'],
+  [14, T_FIRST, 'prefill on the GPU', 'the whole prompt at once'], [T_FIRST, T_EOS, 'decode on the GPU', 'one token at a time, streamed back']];
+const JCAPS = [   // [from, to, text, color?] in real seconds
+  [7.4, 10.8, 'Your prompt leaves as an HTTPS request, and the stopwatch starts.'],
+  [11.5, 14.3, 'The gateway asks: who are you, and are you allowed in?'], [14.5, 17.8, 'Authenticated, under your rate limit. Others get turned away: 429.'],
+  [18.6, 21.8, 'Models read tokens, not text.'], [21.9, 24.8, 'Each token is an integer id from a fixed vocabulary (example ids).'],
+  [25.4, 29.4, 'Replicas keep recent prompts in their KV cache.'], [29.6, 33.8, 'The router sends us to the one that already has our prefix.', C.green],
+  [62.4, 65.4, 'The request waits in a queue.'], [65.6, 70.8, 'It is batched with other requests: one GPU serves many at once.'],
+  [89.4, 94, 'Prefill: the whole prompt in one parallel pass.\nIt is compute-bound.', C.cyan], [94.2, 97.8, 'It fills the KV cache and outputs the first token.', C.amber],
+  [132.4, 137.6, 'Decode: one token per pass, streamed back as it is made.', C.violet], [137.8, 143.8, 'Memory-bound: every pass re-reads the KV cache.\nThat is why output tokens cost more.', C.violet],
+  [207.4, 213.6, 'Back to our request: the model keeps going until it emits a stop token.']];
+function stageTitle(t, ha) {
+  const st = TITLES.find(([a, b]) => t >= a && t < b);
+  if (!st) return;
+  const [a0, a1, name, sb] = st, a = Math.min(eOC(seg(t, a0 + .05, a0 + .35)) * (1 - seg(t, a1 - .12, a1)), 1) * ha, y = 80 + 14 * (1 - a);
+  const bw = Math.max(tw(name, 54, 700), tw(sb, 26)) + 120;
+  const g = ctx.createLinearGradient(0, y - 60, 0, y + 110); g.addColorStop(0, 'rgba(6,10,19,0)'); g.addColorStop(.3, 'rgba(6,10,19,.75)'); g.addColorStop(.8, 'rgba(6,10,19,.75)'); g.addColorStop(1, 'rgba(6,10,19,0)');
+  ctx.globalAlpha = a; ctx.fillStyle = g; ctx.fillRect(CX - bw / 2, y - 60, bw, 170); ctx.globalAlpha = 1;
+  text(name, CX, y, 54, C.ink, { w: 700, a, glow: 18 });
+  text(sb, CX, y + 50, 26, C.cyan, { a: a * seg(t, a0 + .15, a0 + .45) });
+}
+function hud(t, ha) {
+  const a = seg(t, 4.1, 4.4) * ha; if (a <= 0) return;
+  const x = 64, y = 72, v = swAt(t);
+  ctx.globalAlpha = a; ctx.strokeStyle = C.ink; ctx.lineWidth = 3.5;
+  ctx.beginPath(); ctx.arc(x + 22, y + 2, 20, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x + 22, y + 2); const ang = v * 6 - Math.PI / 2; ctx.lineTo(x + 22 + 13 * Math.cos(ang), y + 2 + 13 * Math.sin(ang)); ctx.stroke();
+  ctx.fillStyle = C.ink; ctx.fillRect(x + 17, y - 26, 10, 6); ctx.globalAlpha = 1;
+  text(`${v.toFixed(3)} s`, x + 60, y + 2, 44, C.ink, { w: 700, align: 'left', a });
+  text('example timings', x, y + 48, 20, C.muted, { align: 'left', a });
+  if (t > T_FIRST) chip('first token  0.42 s', x + 440, y + 2, 22, C.amber, { ink: C.amber, a: a * seg(t, T_FIRST, T_FIRST + .1), scale: eOB(seg(t, T_FIRST, T_FIRST + .3)), lit: 1 - seg(t, 16.2, 17) });
+}
+const TL_STAGES = [['network', 4, 6], ['gateway', 6, 8], ['tokens', 8, 10], ['router', 10, 12], ['queue', 12, 14], ['prefill', 14, T_FIRST], ['decode', T_FIRST, T_EOS]];
+const TL = { x: 210, w: 1500, y: H - 72, s: 22 };
+const fmt = v => v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`;
+function timeline(t, ha) {
+  const a = seg(t, 4.1, 4.4) * ha; if (a <= 0) return;
+  const gap = 8, sw = (TL.w - gap * (TL_STAGES.length - 1)) / TL_STAGES.length;
+  TL_STAGES.forEach(([name, s0, s1], i) => {
+    const x = TL.x + i * (sw + gap), cur = t >= s0 && t < s1, done = t >= s1, u = seg(t, s0, s1);
+    ctx.globalAlpha = a; rr(x, TL.y - 5, sw, 10, 5); ctx.fillStyle = '#16233D'; ctx.fill();
+    if (u > 0) { rr(x, TL.y - 5, sw * u, 10, 5); ctx.fillStyle = STAGES[i][2]; if (cur) glow(STAGES[i][2], 14); ctx.fill(); noGlow(); }
+    ctx.globalAlpha = 1;
+    text(name, x + sw / 2, TL.y - TL.s - (cur ? 10 : 4), cur ? TL.s * 1.35 : TL.s, cur ? C.ink : done ? STAGES[i][2] : C.muted, { w: cur ? 700 : 400, a: a * (cur || done ? 1 : .7), glow: cur ? 10 : 0 });
+    if (u > 0) text(fmt(swAt(Math.min(t, s1)) - swAt(s0)), x + sw / 2, TL.y + TL.s + 6, TL.s - 2, C.muted, { a: a * Math.min(1, u * 4) });
+  });
+}
+
+/* ---------- 3D: the journey is drawn by world3d.js (this canvas stays on top, transparent) ---------- */
+Object.assign(window, { C, P, W, H, PROMPT, TOKENS, OUT, TOKCOL, T_DEC, STEP, step, seg, lerp, clamp, bump, eOC, eIn, eIO, eOB, rnd });   // world3d.js reads these
+const world = makeWorld3d(document.getElementById('gl'));
+function fitAll() { fit(); world.resize(cv.width, cv.height); const g = document.getElementById('gl'); g.style.width = cv.style.width; g.style.height = cv.style.height; }
+fitAll();
+
+/* ---------- frame ---------- */
+const FLASH = [CH.net[0], CH.dec1[0], CH.dec2[0]];                      // real-time flashes: the send, and back into 3D
+const STORY_FLASH = [12, 14];                                           // the zoom-throughs into the replica and our lane (story time)
+const DIPS = [CH.route[1], CH.blocks[1], CH.queue[1], CH.batch[1], CH.prefill[1], CH.kv[1], CH.dec1[1], CH.dec2[0], CH.dec2[1], CH.recap[1]];   // cuts between 3D and 2D: a quick dip to black
+function seek(r) {
+  r = clamp(r, 0, DURATION - 1e-6);
+  ctx.setTransform(PX, 0, 0, PX, 0, 0);
+  const j = jt(r), ha = JOURNEY.reduce((m, [a, b]) => Math.max(m, seg(r, a, a + .5) * (1 - seg(r, b - .5, b))), 0);
+  if (j !== null) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); ctx.setTransform(PX, 0, 0, PX, 0, 0);
+    world.frame(j);
+    hud(j, ha); stageTitle(j, ha); timeline(j, ha); caption(r, JCAPS, H - 170);
+    const sf = STORY_FLASH.filter(c => c <= j).at(-1);
+    if (sf !== undefined) { const f = .28 * Math.exp(-(j - sf) * 16); if (f > .005) { ctx.fillStyle = '#DFF8FF'; ctx.globalAlpha = f; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; } }
+  } else {
+    background(r);
+    if (r < CH.hook[1]) { const cam = hookCam(r); ctx.save(); ctx.translate(CX, CY); ctx.scale(cam.s, cam.s); ctx.translate(-cam.x, -cam.y); hook(r); ctx.restore(); }
+    else if (r >= CH.blocks[0] && r < CH.blocks[1]) blocksScene(r - CH.blocks[0]);
+    else if (r >= CH.batch[0] && r < CH.batch[1]) batchScene(r - CH.batch[0]);
+    else if (r >= CH.kv[0] && r < CH.kv[1]) kvScene(r - CH.kv[0]);
+    else if (r >= CH.spec[0] && r < CH.spec[1]) specScene(r - CH.spec[0]);
+    else if (r >= CH.disagg[0] && r < CH.disagg[1]) disaggScene(r - CH.disagg[0]);
+    else if (r >= CH.stream[0] && r < CH.stream[1]) streamScene(r - CH.stream[0]);
+    else if (r >= CH.recap[0] && r < CH.recap[1]) recapScene(r - CH.recap[0]);
+    else if (r >= CH.end[0]) endScene(r - CH.end[0]);
+    GA = 1;
+  }
+  const flash = FLASH.reduce((m, c) => r >= c ? Math.min(m, r - c) : m, 99);
+  const fl = .28 * Math.exp(-flash * 16); if (fl > .005) { ctx.fillStyle = '#DFF8FF'; ctx.globalAlpha = fl; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  const dip = DIPS.reduce((m, c) => Math.max(m, 1 - seg(Math.abs(r - c), 0, .3)), 0);
+  const fadeIn = 1 - seg(r, 0, .3), fadeOut = seg(r, DURATION - .8, DURATION);
+  const k = Math.max(dip, fadeIn, fadeOut);
+  if (k > 0) { ctx.fillStyle = C.bg; ctx.globalAlpha = k; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+// chapters for the YouTube guide (the guide isn't built yet; see brief-full.md)
+window.CHAPTERS = [['Tracing one request', 0], ['Gateway and tokenizer', CH.gate[0]], ['Cache-aware routing', CH.route[0]], ['Queue and batching', CH.queue[0]],
+  ['Prefill and the KV cache', CH.prefill[0]], ['Decode', CH.dec1[0]], ['Speculative decoding', CH.spec[0]], ['Prefill/decode disaggregation', CH.disagg[0]],
+  ['Streaming back', CH.dec2[0]], ['Recap', CH.recap[0]]];
+window.DURATION = DURATION; window.seek = seek; window.__ready = true;
+
+/* ---------- preview controls (not used in capture) ---------- */
+if (!CAPTURE) {
+  const scrub = document.getElementById('scrub'), btn = document.getElementById('play'), tm = document.getElementById('time');
+  scrub.max = DURATION; let playing = true, t0 = performance.now(), at = 0;
+  const show = t => { seek(t); scrub.value = t; tm.textContent = `${t.toFixed(1)} / ${DURATION} s`; };
+  btn.onclick = () => { playing = !playing; btn.textContent = playing ? '⏸' : '▶'; t0 = performance.now() - at * 1000; };
+  scrub.oninput = () => { at = +scrub.value; t0 = performance.now() - at * 1000; show(at); };
+  addEventListener('resize', () => { fitAll(); show(at); });
+  (function loop() { if (playing) { at = ((performance.now() - t0) / 1000) % DURATION; show(at); } requestAnimationFrame(loop); })();
+}
+</script>
+</body>
+</html>

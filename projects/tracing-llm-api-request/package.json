@@ -2,7 +2,7 @@
   "name": "tracing-llm-api-request",
   "version": "1.0.0",
   "private": true,
-  "description": "Promo for the story: rendered from a web page (src/promo/promo.html) in headless Chromium",
+  "description": "Tracing an LLM API request: the full explainer (src/full) and the promos (src/promo), rendered from web pages in headless Chromium",
   "type": "module",
   "engines": {
     "node": ">=20"
