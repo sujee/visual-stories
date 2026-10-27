@@ -118,11 +118,16 @@ LLM, LLM inference, KV cache, prefill, decode, time to first token, AI engineeri
 What happens when you call an LLM API? #shorts
 ```
 
-**Description**
+**Description** (after the talk: it points to the full video)
 
 ```text
-One LLM request, from your code to the GPU and back. Teaser for my talk "What Happens When You Call a Model API" at Hacktoberfest 2026, online, Oct 22, 2026, 10am PT / 1pm ET:
-https://dev.to/events/hacktoberfest-sujee-model-api/october-22-2026
+One LLM request, from your code to the GPU and back, in 43 seconds: gateway, tokenizer, cache-aware router, queue, prefill, decode and the tokens streaming back to you.
 
-Timings are illustrative. Created by sujee.dev.
+Watch the full 5-minute explainer, with chapters: <insert link to the full video>
+
+From my Hacktoberfest 2026 talk "What Happens When You Call a Model API". Event page: https://dev.to/events/hacktoberfest-sujee-model-api/october-22-2026
+
+Timings are illustrative. Created by sujee.dev. Music: original, generated in code. Video and music: CC BY 4.0.
+
+#LLM #AI #GPU #Shorts
 ```

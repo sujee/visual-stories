@@ -6,13 +6,13 @@ The intent (what it teaches, for whom, and what must come across) is in the brie
 
 Working with a coding agent? The house rules are in [AGENTS.md](../../AGENTS.md) at the repository root: read it first.
 
-▶ Watch the finished story: *(coming soon)*
+▶ Watch the finished story: [Video](https://youtu.be/vlfOKbMnzcI) · [Short](https://youtube.com/shorts/60BaMkiBptU)
 
 The story has two parts, each with its own brief, code and render script:
 
 | | Brief | Code | Render | Status |
 |---|---|---|---|---|
-| **Full explainer** (16:9, 4 to 5 min) | [brief-full.md](brief-full.md) | `src/full/` | `./render-full.sh` | v15 (5:18); the Short is the promo's; thumbnails in `thumbnails/…-full-…`; publishing notes: [youtube-publishing-full.md](youtube-publishing-full.md), [social-publishing-full.md](social-publishing-full.md) |
+| **Full explainer** (16:9, 4 to 5 min) | [brief-full.md](brief-full.md) | `src/full/` | `./render-full.sh` | v15 (5:18); the Short is the promo's ([Short](https://youtube.com/shorts/60BaMkiBptU)); thumbnails in `thumbnails/…-full-…`; publishing notes: [youtube-publishing-full.md](youtube-publishing-full.md), [social-publishing-full.md](social-publishing-full.md) |
 | **Promos** (2D and 3D in 16:9, 3D also as a 9:16 Short) | [brief-promo.md](brief-promo.md) | `src/promo/` | `./render-promo.sh` | approved |
 
 They share the page capture and the 3D world in `src/shared/`. Each has its own render script; there is no combined one.

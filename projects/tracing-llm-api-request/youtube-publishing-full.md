@@ -44,7 +44,7 @@ Along the way, five ideas that make it fast: prompt caching in blocks, continuou
 
 Timings shown are illustrative.
 
-Short teaser (0:43): <insert link to the promo Short>
+Short version (0:43): <insert link to the promo Short>
 
 Chapters:
 0:00 What happens when we call an LLM API
@@ -88,17 +88,37 @@ There is no new upload. In YouTube Studio, open the promo Short and:
 
 1. **Related video:** set it to this video, so viewers can tap through from the Short (links typed into a Short's
    description aren't clickable).
-2. **Description:** add `Full video: <insert link to the full video>` as a line, with this video's URL.
-3. Nothing else changes: it already has its own title, thumbnail and tags.
+2. **Title** and **Description:** use the ones below. Fill in `<insert link to the full video>` with this video's URL.
+3. Nothing else changes: it already has its own thumbnail and tags.
 
-Since the Short is a teaser for the talk and the full video is the long version of the same story, mention the other one
-in each description so each leads to the other.
+Each description names the other video, so each leads to the other. The same text is in `social-publishing-promo.md`
+(section "YouTube Short"); keep the two in step.
+
+### Short title
+
+```text
+What happens when you call an LLM API? #shorts
+```
+
+### Short description
+
+```text
+One LLM request, from your code to the GPU and back, in 43 seconds: gateway, tokenizer, cache-aware router, queue, prefill, decode and the tokens streaming back to you.
+
+Watch the full 5-minute explainer, with chapters: <insert link to the full video>
+
+From my Hacktoberfest 2026 talk "What Happens When You Call a Model API". Event page: https://dev.to/events/hacktoberfest-sujee-model-api/october-22-2026
+
+Timings are illustrative. Created by sujee.dev. Music: original, generated in code. Video and music: CC BY 4.0.
+
+#LLM #AI #GPU #Shorts
+```
 
 ## After publishing
 
 ### Link them both ways
 
-- On this video, make sure the description's "Short teaser" line has the Short's URL.
+- On this video, make sure the description's "Short version" line has the Short's URL.
 - On the Short, check that **Related video** points here and the description has this video's URL.
 
 ### Back in the repo
