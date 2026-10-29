@@ -60,8 +60,10 @@ done
 for t in thumbnails/*thumbnail*.png; do [[ $(wc -c < "$t") -lt 2000000 ]] || { echo "thumbnail over 2 MB: $t" >&2; exit 1; }; done
 
 if [[ $QUALITY == final ]]; then               # a final render exports its deliverables (see AGENTS.md): same names, hard links
-  mkdir -p workspace/export
-  for f in "$OUT"/*; do ln -f "$f" "workspace/export/$(basename "$f")" 2>/dev/null || cp -f "$f" workspace/export/; done
+  mkdir -p workspace/export/thumbnails         # only the 4K and 1080p files: a draft rendered into the same version folder stays out
+  for f in "$OUT"/$NAME-$VER-*-4k* "$OUT"/$NAME-$VER-*-1080p*; do ln -f "$f" "workspace/export/$(basename "$f")" 2>/dev/null || cp -f "$f" workspace/export/; done
+  # the thumbnails (the stills in thumbnails/ are already exported above, as …-4k-still.png)
+  for f in thumbnails/*thumbnail*.png; do ln -f "$f" "workspace/export/thumbnails/$(basename "$f")" 2>/dev/null || cp -f "$f" workspace/export/thumbnails/; done
   echo "exported to workspace/export/"
 fi
 

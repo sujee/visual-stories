@@ -4,6 +4,31 @@ Written by your agent for the approved version; edit it freely. There are no cha
 
 Publish the full video first, because the Short links to it.
 
+## Replacing the first version
+
+The first upload (v1, Oct 2026: the Watch links in `README.md` before this update) showed Mistral Large 4's open weights as
+*expected Oct 31*, with a separate API date. They came out on Oct 29, so the second version (v2) shows Mistral once, on
+Oct 29. YouTube can't swap the file behind an existing URL, so the new version is a new upload. Unlist the old one rather
+than deleting it: unlisted videos keep their URL (old posts and links still play) and their views and comments, but drop
+out of search and the channel page.
+
+1. **Upload the new full video** with the steps under "Full video" below, as **Unlisted**. Watch it once on YouTube.
+2. **Upload the new Short** with the steps under "Short" below (Related video: the new full video), also **Unlisted**.
+3. **Link the new pair both ways** (see "After publishing"), then set both to **Public**.
+4. **Point the old full video to the new one.** In YouTube Studio, open the old video:
+   - Put this line at the top of its description:
+
+     ```text
+     Updated version (Mistral Large 4's open weights came out on Oct 29): <insert link to the new full video>
+     ```
+
+   - Post the same line as a comment, pin it, and unpin the old pinned comment.
+   - Set **Visibility** to **Unlisted**. Save.
+5. **Point the old Short to the new one.** Same description line, with `<insert link to the new Short>`; set its
+   **Related video** to the new full video; set it to **Unlisted**.
+6. **Back in the repo**, as under "After publishing": the new links in both READMEs, and a new release
+   `mistral-le-chonk-v2` with the new 4K masters. Leave the first release, `le-chonk-off-v1`, as it is.
+
 ## Full video (0:15)
 
 ### Upload steps
@@ -34,6 +59,7 @@ Le Chonk-Off: recent 1T+ open models compared as cats
 Five recent open models with 1 trillion or more parameters, compared.
 
 (Inspired by Mistral Large 4, nicknamed "Le Chonk" :-)
+The newest, Mistral Large 4, joined with its open weights, released on Oct 29, 2026.
 
 In release order: Kimi K3, Qwen3.8, DeepSeek-V4-Pro, MiMo-V2.6-Pro and Mistral Large 4.
 
@@ -41,7 +67,7 @@ Cat size is total parameters. The red smile is how much of the model is active a
 
 Short version (0:15): <insert link to the Short>
 
-Data: Artificial Analysis Intelligence Index v4.3.2, model release dates and parameter counts as of early October 2026.
+Data: Artificial Analysis Intelligence Index v4.3.2 (since replaced by v5.0); Mistral Large 4's score is for its API preview.
 Source, brief and how to reproduce or remix it: https://github.com/sujee/visual-stories/tree/main/projects/mistral-le-chonk
 
 Created by https://sujee.dev
@@ -99,7 +125,7 @@ Full video: <insert link to the full video>
 
 ### Back in the repo
 
-- `README.md`: replace "coming soon" with the video and Short links.
-- Root `README.md`: add or update the row in the Stories table.
-- A GitHub release `mistral-le-chonk-v1` with the four 4K masters (`…-16x9-4k.mp4`, `…-16x9-4k-silent.mp4`, `…-9x16-4k.mp4`, `…-9x16-4k-silent.mp4`; see "GitHub Release" in `AGENTS.md`), linked from both READMEs.
+- `README.md`: replace the Watch links (video and Short) with the new ones.
+- Root `README.md`: update the row in the Stories table.
+- A GitHub release `mistral-le-chonk-v2` with the four 4K masters (`mistral-le-chonk-v2-16x9-4k.mp4`, `…-16x9-4k-silent.mp4`, `…-9x16-4k.mp4`, `…-9x16-4k-silent.mp4`; see "GitHub Release" in `AGENTS.md`), linked from both READMEs in place of the first release (`le-chonk-off-v1`).
 - The files in `workspace/export/` are not committed. A final render puts its deliverables there automatically (hard links, same names).

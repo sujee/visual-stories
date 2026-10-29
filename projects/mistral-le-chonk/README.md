@@ -1,12 +1,12 @@
 # Le Chonk-Off
 
-Five open models of 1T+ parameters as cartoon cats: size is total parameters, perch height is the Artificial Analysis Intelligence Index, the red smile is active parameters per token.
+Five open models of 1T+ parameters as cartoon cats: size is total parameters, perch height is the Artificial Analysis Intelligence Index, the red smile is active parameters per token. The newest, Mistral Large 4 ("Le Chonk"), joined with its open weights, released on Oct 29, 2026.
 
 The intent (what it shows, for whom, and what must come across) is in [brief.md](brief.md). The approved implementation is in `src/`.
 
 Working with a coding agent? The house rules are in [AGENTS.md](../../AGENTS.md) at the repository root: read it first.
 
-▶ Watch the finished story: [video](https://youtu.be/Ez7uIjdLnRQ) · [Short](https://youtube.com/shorts/-ioImu61b1s) · Download the 4K masters: [release](https://github.com/sujee/visual-stories/releases/tag/mistral-le-chonk-v1)
+▶ Watch the finished story: [video](https://youtu.be/A6JDv_sjKtw) · [Short](https://youtube.com/shorts/S9D8Cq2qt4g) · Download the 4K masters: [release](https://github.com/sujee/visual-stories/releases/tag/mistral-le-chonk-v2)
 
 Publishing: see [youtube-publishing.md](youtube-publishing.md).
 
@@ -42,7 +42,7 @@ To watch the animation live, open `src/story.html` in a browser (play, pause, sc
 3. **Watch it and give notes**, ideally with timestamps: *"0:12: the label overlaps the perch."* The agent applies them and renders the next draft. Repeat until you're happy.
 4. **Approve and render final:** *"v3 is approved, render it at final quality"* (or `./render.sh final v3` yourself). This takes a while: 4K landscape and vertical, each with the piano and silent, plus 1080p copies.
 
-**Option 2: edit the code directly.** The data is the `CSV` list near the top of `src/story.html`, copied from `models.csv` (edit both: the CSV is the readable reference and holds only data). How each model looks (short name, cat colors) is the `STYLE` list right below it. Animation timing is the constants at the top of the script (`LAND`, `FISH0`, `FIN`, `CREDIT0`, `T_END`); colors and fonts are at the top of the file. The piano is `src/music.mjs` (chords, tempo, level at the top); it only needs the story's length. Then run `./render.sh draft <next version>`.
+**Option 2: edit the code directly.** The data is the `CSV` list near the top of `src/story.html`, copied from `models.csv` (edit both: the CSV is the readable reference and holds only data). How each model looks (short name, cat colors) is the `STYLE` list right below it. Animation timing is the `SCENES` table at the top of the script (`node src/capture.mjs --print-scenes` prints it), with the cues right below it (`LAND_GAP`, `FIN`, `CREDIT0`) and the length `T_END`; colors and fonts are at the top of the file. The piano is `src/music.mjs` (chords, tempo, level at the top); it only needs the story's length. Then run `./render.sh draft <next version>`.
 
 ## How it renders
 

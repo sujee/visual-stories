@@ -2,6 +2,7 @@
 //
 //   node src/capture.mjs --out video.mp4 --width 3840 --height 2160 [--fps 30] [--workers N] [--portrait]
 //   node src/capture.mjs --print-duration                                            (the story's length in seconds)
+//   node src/capture.mjs --print-scenes                                              (the scene table, as Markdown)
 //   node src/capture.mjs --out frame.png --width 1920 --height 1080 --at 12.5|end [--portrait] [--still] [--thumb lineup|question]
 //                                                                  (one frame; `end` = the last 0.1 s of the story; --still drops the confetti)
 //
@@ -57,6 +58,13 @@ if (AT !== null) {
 
 const first = await openPage();
 if (process.argv.includes('--print-duration')) { console.log(await first.evaluate(() => window.DURATION)); await browser.close(); process.exit(0); }
+if (process.argv.includes('--print-scenes')) {                  // the SCENES table as Markdown
+  const scenes = await first.evaluate(() => window.SCENES.map(({ name, start, end, shows }) => ({ name, start, end, shows })));
+  const ts = s => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;   // m:ss.s
+  console.log(['| Time | Scene | What happens |', '|---|---|---|',
+    ...scenes.map(s => `| ${ts(s.start)}–${ts(s.end)} | ${s.name} | ${s.shows} |`)].join('\n'));
+  await browser.close(); process.exit(0);
+}
 const duration = await first.evaluate(() => window.DURATION);
 
 

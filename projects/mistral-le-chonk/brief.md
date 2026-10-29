@@ -16,13 +16,14 @@ Developers and AI-curious people who follow open-model news but don't track the 
 - Bigger cat, bigger model.
 - Only a small slice of each model is active at a time (the smile).
 - Size isn't intelligence: perch height is the Artificial Analysis Intelligence Index.
-- Release order, with Mistral Large 4 on the API now and open weights expected on Oct 31, 2026.
+- Release order, by when each model's weights came out. Mistral Large 4 shows one date: its open weights on Oct 29, 2026 (not its API preview).
 
 ## Style
 Bright cartoon, plain words, very little text. Each vendor gets its own cat color; Mistral is the orange tabby. Sound is only a very quiet, mellow piano: no effects, no beat.
 
 ## Constraints
 - Numbers come from `models.csv`.
+- Perch heights use Intelligence Index v4.3.2 for all five models. v5.0 (Oct 27, 2026) can't score Kimi K3 or the open Qwen3.8, so the scores would be inconsistent.
 - Mistral Large 4's intelligence score is from the preview.
 - The piano is mixed far quieter than the usual video loudness, on purpose: it should stay an undertone.
 

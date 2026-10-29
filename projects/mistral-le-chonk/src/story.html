@@ -27,7 +27,7 @@ html.capture #stage{width:100vw;height:100vh;max-width:none;margin:0}
 <script>if(/[?&]capture/.test(location.search))document.documentElement.classList.add('capture')</script>
 </head>
 <body>
-<svg id="stage" viewBox="-89 0 1778 1000" role="img" aria-label="Animated cartoon: five open models appear as cats whose size shows their parameter count. Hearts show active parameters per token. Mistral's Le Chonk is live on the API, with open weights expected Oct 31."></svg>
+<svg id="stage" viewBox="-89 0 1778 1000" role="img" aria-label="Animated cartoon: five open models appear as cats whose size shows their parameter count. A red smile shows active parameters per token. Mistral's Le Chonk, open since Oct 29, comes last."></svg>
 <div id="bar">
   <button id="play" aria-label="Play or pause">⏸</button>
   <button id="replay">↻ Replay</button>
@@ -68,7 +68,24 @@ const LY=PORTRAIT?{
   title:{y0:330,y1:74,s0:120,s1:46,sub:62,ss:36}, cap:{y:128,s:34}, credit:{y:866,s:20}, tag:{y:122,s:30}, axisX:30, axisT:19
 };
 const [VBX,VBY,VBW,VBH]=LY.vb, SC=LY.rxMax/140;      // SC: how much smaller the cats (and their splashes) are than in landscape
-const T_END=15.6, CREDIT0=12.0, FIN=11.1, FISH0=8.4, CATCH=11.0, Y0=LY.Y0;
+const Y0=LY.Y0;
+
+/* ---------- scenes: the story's timeline, in seconds (both formats) ----------
+   The story's timings all come from this table and the cues below it. A scene ends where the next one starts.
+   `node src/capture.mjs --print-scenes` prints it as a Markdown table. */
+const SCENES=[
+  {name:'Title',         start:0.0,  shows:'"Le Chonk-Off" and its subtitle. The title moves to the top as the timeline, the intelligence scale and the first perch appear.'},
+  {name:'Cats drop in',  start:2.0,  shows:'One cat per model drops onto its perch, in release order. Cat size is total parameters, perch height is the intelligence score; a caption explains both.'},
+  {name:'Fish swims by', start:8.4,  shows:'A fish swims under the cats. As it passes each one, the cat grins: the red smile and the active-parameter count show how much of the model is active.'},
+  {name:'Finale',        start:11.0, shows:'The cats hop in a wave with confetti, the biggest cat says "Welcome, little chonk!", and the credit fades in.'},
+];
+const T_END=15.6;                                                // the story's length
+SCENES.forEach((s,i)=>s.end=i+1<SCENES.length?SCENES[i+1].start:T_END);
+const scene=name=>SCENES.find(s=>s.name===name);
+/* cues within the scenes */
+const DROP=scene('Cats drop in').start, LAND_GAP=1.3;            // the first cat lands at DROP, then one every LAND_GAP s
+const FISH0=scene('Fish swims by').start, CATCH=scene('Finale').start;   // the fish crosses the screen between these
+const FIN=CATCH+.1, CREDIT0=CATCH+1.0;                           // the finale's hops start; the credit fades in
 const SINK=14, G=1400;                     // cats stand knee-deep in the pool; G = droplet gravity (px/s²)
 
 /* ---------- data + storyboard ---------- */
@@ -78,7 +95,7 @@ const CSV=[
   {"model": "Qwen3.8", "vendor": "Alibaba", "total_params_b": 2400, "active_params_b": 95, "intelligence_index": 39.9, "release_date": "2026-08-12", "weights_date": ""},
   {"model": "DeepSeek-V4-Pro", "vendor": "DeepSeek", "total_params_b": 1600, "active_params_b": 49, "intelligence_index": 36.0, "release_date": "2026-08-13", "weights_date": ""},
   {"model": "MiMo-V2.6-Pro", "vendor": "Xiaomi", "total_params_b": 1020, "active_params_b": 42, "intelligence_index": 46.0, "release_date": "2026-09-21", "weights_date": ""},
-  {"model": "Mistral Large 4", "vendor": "Mistral AI", "total_params_b": 1000, "active_params_b": 49, "intelligence_index": 38.4, "release_date": "2026-10-06", "weights_date": "2026-10-31"}
+  {"model": "Mistral Large 4", "vendor": "Mistral AI", "total_params_b": 1000, "active_params_b": 49, "intelligence_index": 38.4, "release_date": "2026-10-06", "weights_date": "2026-10-29"}
 ];
 /* How each model looks in the story (not data, so not in models.csv): the short name used on the timeline and the cat's colors. */
 const STYLE={
@@ -88,18 +105,19 @@ const STYLE={
   'DeepSeek-V4-Pro': {short:'DeepSeek', fur:'#5B8DEF', stripe:'#3A63CC', belly:'#DCE7FC'},
   'Mistral Large 4': {short:'Mistral',  fur:'#F0903A', stripe:'#B8561B', belly:'#FFE2B8'},
 };
-const LAND=[2.0,3.3,4.6,5.9,7.2];          // landing slots, assigned in release-date order
+const LAND=CSV.map((_,i)=>+(DROP+i*LAND_GAP).toFixed(2));          // landing slots, assigned in release order
+const openDate=r=>r.weights_date||r.release_date;                    // a model counts as released when its weights are open (Mistral: Oct 29, not its Oct 6 API launch)
 const tlabel=b=>`${+(b/1000).toFixed(2)}T`;
-const DATA=CSV.sort((a,b)=>a.release_date<b.release_date?-1:1).map((r,i)=>({
+const DATA=CSV.sort((a,b)=>openDate(a)<openDate(b)?-1:1).map((r,i)=>({
   name:r.model, short:STYLE[r.model].short, vendor:r.vendor, fur:STYLE[r.model].fur, stripe:STYLE[r.model].stripe, belly:STYLE[r.model].belly,
   total:+r.total_params_b, active:+r.active_params_b, ai:+r.intelligence_index, tl:tlabel(+r.total_params_b),
-  release:r.release_date, weights:r.weights_date||null, star:!!r.weights_date, land:LAND[i], bubbles:[]}));
+  release:openDate(r), star:r.model==='Mistral Large 4', land:LAND[i], bubbles:[]}));   // star: Le Chonk, the story's hero
 const K=LY.rxMax/Math.sqrt(Math.max(...DATA.map(d=>d.total)));   // body area ∝ total params (the biggest model is 280px wide)
 const BIG=DATA.reduce((a,b)=>b.total>a.total?b:a);
 DATA.forEach(d=>{ d.bubbles.push([d.tl,d.land+.8,d.land+2.1]); });
 BIG.bubbles.push(['Welcome, little chonk!',FIN,FIN+3.6]);
 const CAPTIONS=[
-  ['size = total params · smile = active params',2.2,8.4],
+  ['size = total params · smile = active params',DROP+.2,FISH0],
 ];
 
 /* ---------- scene ---------- */
@@ -179,7 +197,6 @@ function makeCat(d,i){
   d.rings=[0,1,2].map(()=>el('ellipse',{style:'fill:none;stroke:var(--waterhi);stroke-width:4',opacity:0},fx));
 }
 DATA.forEach(makeCat);
-const Mistral=DATA.find(d=>d.star);
 
 /* ---------- perches: post height = Intelligence Index (act 3) ---------- */
 const PXA=LY.pxa;                                // px per Intelligence Index point (perch height)
@@ -214,7 +231,7 @@ const TL_X0=LY.tl.x0, TL_X1=LY.tl.x1, TL_Y=LY.tl.y;
 const dayN=iso=>{const [y,m,d]=iso.split('-').map(Number);return Date.UTC(y,m-1,d)/864e5};
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const dlabel=iso=>{const [y,m,d]=iso.split('-').map(Number);return `${MON[m-1]} ${d}`};
-const allDates=DATA.flatMap(d=>[d.release,d.weights]).filter(Boolean).sort();
+const allDates=DATA.map(d=>d.release).sort();
 const [y0,m0]=allDates[0].split('-').map(Number), [y1,m1]=allDates[allDates.length-1].split('-').map(Number);
 const iso1=(y,m)=>`${y+Math.floor((m-1)/12)}-${String(((m-1)%12)+1).padStart(2,'0')}-01`;
 const lastTick=iso1(y1,m1+1);                                           // first of the month after the last date
@@ -223,7 +240,6 @@ const tx=iso=>TL_X0+(dayN(iso)-D0)/(D1-D0)*(TL_X1-TL_X0);
 DATA.forEach(d=>d.anc='middle');
 DATA.forEach((d,k)=>{ const n=DATA[k+1];                 // two releases a few days apart: labels go on opposite sides
   if(n&&dayN(n.release)-dayN(d.release)<4){d.anc='end';n.anc='start'} });
-const WX=tx(Mistral.weights);
 const tl=el('g',{opacity:0},svg);
 el('rect',{x:LY.tl.rect[0],y:LY.tl.rect[1],width:LY.tl.rect[2],height:LY.tl.rect[3],rx:16,style:'fill:var(--paper);opacity:.6'},tl);
 el('line',{x1:TL_X0,x2:TL_X1,y1:TL_Y,y2:TL_Y,style:'stroke:var(--muted);stroke-width:4;stroke-linecap:round;opacity:.45'},tl);
@@ -236,14 +252,11 @@ const tlLabel=(x,anc,l1,l2)=>{ const g=el('g',{opacity:0},tl);       // landscap
   else txt(g,x,TL_Y-22,`${l1} · ${l2}`,{'text-anchor':anc,style:'font-size:15px;font-weight:400'});
   return g };
 const tlProg=el('line',{x1:TL_X0,y1:TL_Y,x2:TL_X0,y2:TL_Y,style:'stroke:var(--line);stroke-width:5;stroke-linecap:round'},tl);
-const tlWDash=el('line',{y1:TL_Y,y2:TL_Y,opacity:0,style:`stroke:${Mistral.fur};stroke-width:5;stroke-dasharray:3 9;stroke-linecap:round`},tl);
 DATA.forEach(d=>{
   const anc=d.anc; d.tlx=tx(d.release);
   d.tm=el('g',{},tl); el('circle',{r:10,style:`fill:${d.fur};stroke:var(--line);stroke-width:3`},d.tm);
-  d.tlab=tlLabel(d.tlx+(anc==='end'?-8:anc==='start'?8:0),anc,`${d.short}${d.star?' API':''}`,dlabel(d.release));
+  d.tlab=tlLabel(d.tlx+(anc==='end'?-8:anc==='start'?8:0),anc,d.short,dlabel(d.release));
 });
-const tlW=el('g',{opacity:0},tl); el('circle',{r:10,style:`fill:var(--paper);stroke:${Mistral.fur};stroke-width:4;stroke-dasharray:4 3`},tlW);
-const tlWl=tlLabel(WX,'middle','weights',dlabel(Mistral.weights));
 function renderTL(t){
   tl.setAttribute('opacity',seg(t,.5,1.1));
   let hx=TL_X0;                                         // the filled line crawls from one release date to the next
@@ -257,10 +270,6 @@ function renderTL(t){
     d.tm.setAttribute('transform',`translate(${d.tlx},${TL_Y}) scale(${Math.max(.01,eOB(seg(t,d.land,d.land+.35)))})`);
     d.tlab.setAttribute('opacity',seg(t,d.land+.1,d.land+.5));
   });
-  const l=Mistral.land, wd=seg(t,l+1.0,l+1.8);          // API date -> expected open-weights date
-  tlWDash.setAttribute('x1',Mistral.tlx); tlWDash.setAttribute('x2',lerp(Mistral.tlx,WX,eOC(wd))); tlWDash.setAttribute('opacity',wd>0?1:0);
-  tlW.setAttribute('transform',`translate(${WX},${TL_Y}) scale(${Math.max(.01,eOB(seg(t,l+1.7,l+2.1)))})`);
-  tlW.setAttribute('opacity',seg(t,l+1.7,l+1.8)); tlWl.setAttribute('opacity',seg(t,l+1.9,l+2.3));
 }
 
 /* fish "token" */
@@ -450,6 +459,7 @@ if(h){tcur=+h[1];setPlaying(false);render(tcur)}
 if(!CAPTURE) requestAnimationFrame(loop);
 window.seek=t=>{tcur=t;render(t)};
 window.DURATION=T_END;                                   // read by src/capture.mjs
+window.SCENES=SCENES;                                    // read by src/capture.mjs --print-scenes
 window.__ready=true;
 </script>
 </body>
